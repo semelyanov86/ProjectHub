@@ -1,0 +1,176 @@
+version: '3'
+
+vars:
+  APP_NAME: "projecthub"
+  BIN_DIR: "bin"
+  PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "npm"}}'
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  GOOS: '{{.GOOS | default OS}}'
+
+includes:
+  common: ./build/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
+  darwin: ./build/darwin/Taskfile.yml
+  linux: ./build/linux/Taskfile.yml
+  ios: ./build/ios/Taskfile.yml
+  android: ./build/android/Taskfile.yml
+
+tasks:
+  dev:
+    summary: Runs ProjectHub in Wails development mode
+    preconditions:
+      - sh: command -v wails3 >/dev/null 2>&1
+        msg: "wails3 CLI not found in PATH. Ensure $(go env GOPATH)/bin is in your PATH."
+    cmds:
+      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+
+  build:
+    summary: Builds the production desktop binary
+    preconditions:
+      - sh: command -v wails3 >/dev/null 2>&1
+        msg: "wails3 CLI not found in PATH. Ensure $(go env GOPATH)/bin is in your PATH."
+    cmds:
+      - task: "{{.GOOS}}:build"
+
+  package:
+    summary: Packages production distribution artifacts for the target OS
+    cmds:
+      - task: "{{.GOOS}}:package"
+
+  deb:
+    summary: Builds a Debian/Ubuntu .deb package for Linux
+    preconditions:
+      - sh: test "$(uname -s)" = "Linux"
+        msg: "Building a .deb package is only supported on Linux hosts."
+      - sh: command -v wails3 >/dev/null 2>&1
+        msg: "wails3 CLI not found in PATH. Ensure $(go env GOPATH)/bin is in your PATH."
+    cmds:
+      - task: linux:create:deb
+
+  run:
+    summary: Runs the built desktop binary
+    cmds:
+      - task: "{{.GOOS}}:run"
+
+  prepare:
+    summary: Generates Wails TypeScript bindings and builds frontend assets required by Go embed and typecheck
+    run: once
+    preconditions:
+      - sh: command -v wails3 >/dev/null 2>&1
+        msg: "wails3 CLI not found in PATH. Ensure $(go env GOPATH)/bin is in your PATH."
+    cmds:
+      - task: common:build:frontend
+
+  test:
+    summary: Runs Go backend and Vue frontend unit tests
+    cmds:
+      - task: test:go
+      - task: test:frontend
+
+  test:go:
+    summary: Runs Go unit tests with the race detector
+    deps:
+      - prepare
+    cmds:
+      - go test -race . ./internal/...
+
+  test:frontend:
+    summary: Runs frontend Vitest suite
+    deps:
+      - common:install:frontend:deps
+    cmds:
+      - npm --prefix frontend run test
+
+  test:coverage:
+    summary: Runs Go and frontend tests with coverage reporting
+    deps:
+      - prepare
+    cmds:
+      - go test -race -cover . ./internal/...
+      - npm --prefix frontend run test:coverage
+
+  lint:
+    summary: Runs Go vet, golangci-lint, TypeScript typecheck, and ESLint
+    deps:
+      - prepare
+    preconditions:
+      - sh: command -v golangci-lint >/dev/null 2>&1
+        msg: "golangci-lint not found in PATH. Install v2 via: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
+    cmds:
+      - go vet . ./internal/...
+      - golangci-lint run . ./internal/...
+      - npm --prefix frontend run typecheck
+      - npm --prefix frontend run lint
+
+  format:
+    summary: Formats Go (gofumpt/goimports) and frontend (Prettier + Tailwind) sources
+    deps:
+      - common:install:frontend:deps
+    preconditions:
+      - sh: command -v golangci-lint >/dev/null 2>&1
+        msg: "golangci-lint not found in PATH. Install v2 via: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
+    cmds:
+      - golangci-lint fmt . ./internal/...
+      - npm --prefix frontend run format
+
+  format:check:
+    summary: Verifies Go and frontend formatting without modifying files
+    deps:
+      - common:install:frontend:deps
+    preconditions:
+      - sh: command -v golangci-lint >/dev/null 2>&1
+        msg: "golangci-lint not found in PATH. Install v2 via: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
+    cmds:
+      - |
+        diff=$(golangci-lint fmt --diff . ./internal/...)
+        if [ -n "$diff" ]; then
+          echo "$diff"
+          exit 1
+        fi
+      - npm --prefix frontend run format:check
+
+  audit:
+    summary: Runs Go vulnerability scan (govulncheck) and npm audit
+    cmds:
+      - |
+        if command -v govulncheck >/dev/null 2>&1; then
+          govulncheck . ./internal/...
+        elif [ -x "$(go env GOPATH)/bin/govulncheck" ]; then
+          "$(go env GOPATH)/bin/govulncheck" . ./internal/...
+        else
+          echo "govulncheck not installed; install with: go install golang.org/x/vuln/cmd/govulncheck@latest"
+          exit 1
+        fi
+      - npm --prefix frontend audit --audit-level=high
+
+  clean:
+    summary: Removes build, generated bindings, coverage, and distribution output directories
+    cmds:
+      - rm -rf "{{.BIN_DIR}}" frontend/dist frontend/bindings frontend/coverage coverage.out build/linux/appimage/build build/linux/*.desktop
+
+  doctor:
+    summary: Verifies Go, Node, Task, linters, and Wails 3 environment readiness
+    cmds:
+      - go version
+      - node --version
+      - npm --version
+      - task --version
+      - golangci-lint --version
+      - wails3 doctor
+
+  check:
+    summary: Runs formatting verification, linting, typechecking, and all unit tests
+    cmds:
+      - task: format:check
+      - task: lint
+      - task: test
+
+  build:server:
+    summary: Builds the application in server mode (no GUI, HTTP server only)
+    cmds:
+      - task: common:build:server
+
+  run:server:
+    summary: Runs the application in server mode
+    cmds:
+      - task: common:run:server

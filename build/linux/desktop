@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=ProjectHub
+Comment=Lightweight desktop project manager for Linux developers
+Exec=/usr/local/bin/projecthub %u
+Terminal=false
+Type=Application
+Icon=projecthub
+Categories=Development;Utility;
+StartupWMClass=projecthub

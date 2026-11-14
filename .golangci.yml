@@ -1,0 +1,102 @@
+version: "2"
+
+run:
+  concurrency: 4
+  timeout: 5m
+  tests: true
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 50
+
+linters:
+  enable:
+    # Correctness
+    - govet
+    - staticcheck
+    - unused
+    - errcheck
+    - errorlint
+    - nilerr
+    - forcetypeassert
+    - copyloopvar
+    - durationcheck
+    - reassign
+    # Style & Naming
+    - gocritic
+    - revive
+    - whitespace
+    - godot
+    - misspell
+    - dupword
+    - predeclared
+    - errname
+    - asciicheck
+    # Complexity
+    - gocyclo
+    - nestif
+    - funlen
+    - dupl
+    # Performance
+    - perfsprint
+    - unconvert
+    - ineffassign
+    - goconst
+    # Security & Resources
+    - gosec
+    - bidichk
+    - bodyclose
+    - noctx
+    - containedctx
+    - fatcontext
+    # Logging & Testing
+    - sloglint
+    - thelper
+    - usetesting
+    # Modernization & Meta
+    - modernize
+    - intrange
+    - usestdlibvars
+    - exhaustive
+    - nolintlint
+
+  exclusions:
+    paths:
+      - ^build/
+      - ^frontend/
+      - vendor$
+      - third_party$
+
+  settings:
+    dupl:
+      threshold: 100
+    errcheck:
+      check-type-assertions: true
+    funlen:
+      lines: 120
+      statements: 80
+    goconst:
+      min-len: 3
+      min-occurrences: 4
+    gocyclo:
+      min-complexity: 13
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  settings:
+    gofumpt:
+      extra:
+        group-params: true
+        clothe-returns: true
+  exclusions:
+    generated: lax
+    paths:
+      - ^build/
+      - ^frontend/
+      - third_party$
+      - builtin$
