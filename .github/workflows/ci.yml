@@ -97,6 +97,13 @@ jobs:
           name: projecthub-deb
           path: dist
 
+      # WebKitGTK sandboxes web content with bubblewrap, which needs
+      # unprivileged user namespaces. Ubuntu desktops allow them through
+      # AppArmor profiles; the runner image restricts them, so allow them on
+      # this throwaway VM only.
+      - name: Allow unprivileged user namespaces for the WebKitGTK sandbox
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Install the package in a clean container and run the GUI smoke tests
         env:
           IMAGE: ${{ matrix.image }}
