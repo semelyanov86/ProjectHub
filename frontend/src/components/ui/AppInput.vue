@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import { X } from '@lucide/vue';
 
 interface Props {
@@ -18,6 +19,15 @@ const emit = defineEmits<{
   'update:modelValue': [value: string];
 }>();
 
+const input = ref<HTMLInputElement | null>(null);
+
+defineExpose({
+  focus() {
+    input.value?.focus();
+    input.value?.select();
+  },
+});
+
 function onInput(event: Event) {
   const target = event.target as HTMLInputElement;
   emit('update:modelValue', target.value);
@@ -30,6 +40,7 @@ function onInput(event: Event) {
   >
     <slot name="leading" />
     <input
+      ref="input"
       :value="modelValue"
       :placeholder="placeholder"
       :aria-label="ariaLabel ?? placeholder"

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/semelyanov86/ProjectHub/internal/project"
 )
@@ -15,6 +16,7 @@ import (
 type Store struct {
 	mu  sync.RWMutex
 	dir string
+	now func() time.Time
 }
 
 // DefaultDir resolves the ProjectHub configuration directory following the XDG Base Directory Specification.
@@ -39,7 +41,7 @@ func NewStore(dir string) (*Store, error) {
 	if !filepath.IsAbs(cleanDir) {
 		return nil, fmt.Errorf("%w: config directory %q must be absolute", ErrInvalidConfig, dir)
 	}
-	return &Store{dir: cleanDir}, nil
+	return &Store{dir: cleanDir, now: time.Now}, nil
 }
 
 // Dir returns the resolved configuration directory path.
@@ -68,13 +70,23 @@ func (s *Store) LoadSettings() (Settings, error) {
 
 func (s *Store) loadSettingsUnlocked() (Settings, error) {
 	settings := DefaultSettings()
+	settings.SchemaVersion = 0
 	path := s.SettingsPath()
 	found, err := readJSONFile(path, &settings)
 	if err != nil {
 		return Settings{}, err
 	}
 	if !found {
-		return settings, nil
+		return DefaultSettings(), nil
+	}
+	if settings.SchemaVersion == 0 {
+		settings.SchemaVersion = 1
+	}
+	if settings.SchemaVersion == 1 {
+		migrateSettingsV1(&settings)
+	}
+	if settings.CustomTerminal.Args == nil {
+		settings.CustomTerminal.Args = []string{}
 	}
 	if err := settings.Validate(); err != nil {
 		return Settings{}, fmt.Errorf("validate %s: %w", path, err)
@@ -86,6 +98,9 @@ func (s *Store) loadSettingsUnlocked() (Settings, error) {
 // If an existing settings.json on disk is unreadable, corrupted, or uses an unsupported
 // schema version, SaveSettings refuses to overwrite it so user data is never lost.
 func (s *Store) SaveSettings(settings Settings) error {
+	if settings.CustomTerminal.Args == nil {
+		settings.CustomTerminal.Args = []string{}
+	}
 	if settings.SchemaVersion == 0 {
 		settings.SchemaVersion = CurrentSettingsSchemaVersion
 	}
@@ -139,18 +154,16 @@ func (s *Store) LoadProjectsFile() (ProjectsFile, error) {
 
 func (s *Store) loadProjectsFileUnlocked() (ProjectsFile, error) {
 	pf := DefaultProjectsFile()
+	pf.SchemaVersion = 0
 	path := s.ProjectsPath()
 	found, err := readJSONFile(path, &pf)
 	if err != nil {
 		return ProjectsFile{}, err
 	}
 	if !found {
-		return pf, nil
+		return DefaultProjectsFile(), nil
 	}
-	if pf.Projects == nil {
-		pf.Projects = []project.Project{}
-	}
-	if err := pf.Validate(); err != nil {
+	if err := normalizeLoadedProjects(&pf); err != nil {
 		return ProjectsFile{}, fmt.Errorf("validate %s: %w", path, err)
 	}
 	return pf, nil
@@ -162,7 +175,7 @@ func (s *Store) LoadProjects() ([]project.Project, error) {
 	if err != nil {
 		return nil, err
 	}
-	return pf.Projects, nil
+	return cloneProjects(pf.Projects), nil
 }
 
 // SaveProjectsFile validates and atomically writes projects.json.
@@ -186,6 +199,43 @@ func (s *Store) SaveProjectsFile(pf ProjectsFile) error {
 		return fmt.Errorf("refusing to overwrite unreadable existing projects: %w", err)
 	}
 	return writeJSONAtomic(s.ProjectsPath(), pf)
+}
+
+// UpdateProjects applies mutate to a deep copy of the catalog under the store lock.
+// Mutator errors are returned unchanged, and invalid or unreadable catalogs are never overwritten.
+// The returned committed projects are a deep copy and are never nil.
+func (s *Store) UpdateProjects(mutate func([]project.Project) ([]project.Project, error)) ([]project.Project, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	current, err := s.loadProjectsFileUnlocked()
+	if err != nil {
+		return nil, err
+	}
+	updated, err := mutate(cloneProjects(current.Projects))
+	if err != nil {
+		return nil, err
+	}
+	pf := ProjectsFile{SchemaVersion: CurrentProjectsSchemaVersion, Projects: cloneProjects(updated)}
+	if err := pf.Validate(); err != nil {
+		return nil, err
+	}
+	if err := writeJSONAtomic(s.ProjectsPath(), pf); err != nil {
+		return nil, err
+	}
+	return cloneProjects(pf.Projects), nil
+}
+
+func cloneProjects(projects []project.Project) []project.Project {
+	out := make([]project.Project, len(projects))
+	copy(out, projects)
+	for i := range out {
+		if out[i].LastOpened != nil {
+			opened := *out[i].LastOpened
+			out[i].LastOpened = &opened
+		}
+	}
+	return out
 }
 
 func readJSONFile(path string, target any) (bool, error) {

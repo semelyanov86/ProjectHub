@@ -2,7 +2,10 @@
 // exposed to the ProjectHub frontend.
 package app
 
-import "runtime"
+import (
+	"os"
+	"runtime"
+)
 
 // Version is the semantic version of ProjectHub. It can be overridden via ldflags at build time.
 var Version = "0.1.0"
@@ -12,8 +15,10 @@ type Info struct {
 	Name      string `json:"name"`
 	Version   string `json:"version"`
 	ConfigDir string `json:"configDir"`
-	OS        string `json:"os"`
-	Arch      string `json:"arch"`
+	// HomeDir is the user's home directory, used to abbreviate paths as "~".
+	HomeDir string `json:"homeDir"`
+	OS      string `json:"os"`
+	Arch    string `json:"arch"`
 }
 
 // Service exposes application metadata to the frontend via Wails bindings.
@@ -28,10 +33,15 @@ func NewService(configDir string) *Service {
 
 // GetInfo returns runtime application metadata.
 func (s *Service) GetInfo() Info {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = ""
+	}
 	return Info{
 		Name:      "ProjectHub",
 		Version:   Version,
 		ConfigDir: s.configDir,
+		HomeDir:   home,
 		OS:        runtime.GOOS,
 		Arch:      runtime.GOARCH,
 	}

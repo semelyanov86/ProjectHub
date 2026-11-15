@@ -1,80 +1,291 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue';
-import { AlertTriangle } from '@lucide/vue';
-import { useAppStore } from '@/stores/app';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { AlertTriangle, LoaderCircle } from '@lucide/vue';
+import { backend } from '@/services/backend';
+import type {
+  DirectoryDraft,
+  DropResult,
+  ImportPreview,
+  Project,
+  ProjectSort,
+} from '@/services/backend';
+import { errorMessage } from '@/lib/errors';
 import { useTheme } from '@/composables/useTheme';
-import type { Settings } from '@/services/backend';
+import { useAppStore } from '@/stores/app';
+import { useGitStore } from '@/stores/git';
+import { useNotificationsStore } from '@/stores/notifications';
+import { useProjectsStore } from '@/stores/projects';
+import { useToolsStore } from '@/stores/tools';
 import AppHeader from '@/components/AppHeader.vue';
+import ConfirmDialog from '@/components/ConfirmDialog.vue';
+import ImportDialog from '@/components/ImportDialog.vue';
+import ProjectDialog from '@/components/ProjectDialog.vue';
+import ProjectTabs from '@/components/ProjectTabs.vue';
+import ProjectToolbar from '@/components/ProjectToolbar.vue';
+import SettingsDialog from '@/components/SettingsDialog.vue';
+import ToastHost from '@/components/ToastHost.vue';
 import ProjectsView from '@/views/ProjectsView.vue';
-import SettingsView from '@/views/SettingsView.vue';
 
-const store = useAppStore();
-const themeRef = computed(() => store.settings.theme);
-useTheme(themeRef);
+const app = useAppStore();
+const projects = useProjectsStore();
+const git = useGitStore();
+const tools = useToolsStore();
+const notifications = useNotificationsStore();
+
+useTheme(computed(() => app.settings.theme));
+
+const toolbar = ref<InstanceType<typeof ProjectToolbar> | null>(null);
+const projectsView = ref<InstanceType<typeof ProjectsView> | null>(null);
+
+const settingsOpen = ref(false);
+const projectDialog = ref<{
+  mode: 'add' | 'edit';
+  project: Project | null;
+  draft: DirectoryDraft | null;
+} | null>(null);
+const importPreview = ref<ImportPreview | null>(null);
+const removeTarget = ref<Project | null>(null);
+
+const anyDialogOpen = computed(
+  () =>
+    settingsOpen.value ||
+    projectDialog.value !== null ||
+    importPreview.value !== null ||
+    removeTarget.value !== null,
+);
+
+const unsubscribers: Array<() => void> = [];
+
+async function initialize() {
+  await Promise.all([app.initialize(), projects.load()]);
+  void tools.refresh();
+  void git.refreshAll();
+}
+
+function openAdd(draft: DirectoryDraft | null = null) {
+  projectDialog.value = { mode: 'add', project: null, draft };
+}
+
+async function addProject() {
+  // Open the native folder picker first, like JetBrains Toolbox; the dialog
+  // then shows the suggested name and Git state of the chosen directory.
+  try {
+    const draft = await backend.chooseDirectory();
+    if (!draft.cancelled) {
+      openAdd(draft);
+    }
+  } catch (err) {
+    notifications.error('Could not open folder picker', errorMessage(err));
+  }
+}
+
+function openEdit(id: string) {
+  const project = projects.byId(id);
+  if (project) {
+    projectDialog.value = { mode: 'edit', project, draft: null };
+  }
+}
+
+function onProjectSaved(project: Project) {
+  void git.refreshProjects([project.id]);
+}
+
+function requestRemove(id: string) {
+  removeTarget.value = projects.byId(id) ?? null;
+}
+
+async function confirmRemove() {
+  const project = removeTarget.value;
+  if (project && (await projects.remove(project.id))) {
+    git.forget(project.id);
+  }
+}
+
+async function startImport() {
+  try {
+    const preview = await backend.prepareImport();
+    if (!preview.cancelled) {
+      importPreview.value = preview;
+    }
+  } catch (err) {
+    notifications.error('Import failed', errorMessage(err));
+  }
+}
+
+async function onImported() {
+  await projects.load();
+  void git.refreshAll();
+}
+
+async function exportProjects() {
+  try {
+    const result = await backend.exportProjects();
+    if (!result.cancelled) {
+      notifications.success(`Exported ${result.count} projects`, result.path);
+    }
+  } catch (err) {
+    notifications.error('Export failed', errorMessage(err));
+  }
+}
+
+async function refreshAll() {
+  await projects.load();
+  void tools.refresh();
+  await git.refreshAll();
+}
+
+function setSort(sort: ProjectSort) {
+  void app.setProjectSort(sort);
+}
+
+async function onDrop(result: DropResult) {
+  if (result.error) {
+    notifications.error('Could not add dropped folder', result.error);
+    return;
+  }
+  if (result.draft) {
+    if (!anyDialogOpen.value) {
+      openAdd(result.draft);
+    }
+    return;
+  }
+  if (result.report) {
+    const added = result.report.added ?? [];
+    const skipped = result.report.skipped ?? [];
+    await projects.load();
+    void git.refreshProjects(added.map((p) => p.id));
+    const detail = skipped.map((s) => `${s.name || s.path}: ${s.reason}`).join('\n');
+    if (added.length > 0) {
+      notifications.success(
+        `Added ${added.length} projects`,
+        skipped.length ? `Skipped ${skipped.length}:\n${detail}` : undefined,
+      );
+    } else {
+      notifications.warning('No folders were added', detail || undefined);
+    }
+  }
+}
+
+function onWindowFocus() {
+  void git.refreshIfStale();
+  if (Date.now() - tools.refreshedAt > 60_000) {
+    void tools.refresh();
+  }
+}
+
+function onGlobalKeydown(event: KeyboardEvent) {
+  if (anyDialogOpen.value) {
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 'f') {
+    event.preventDefault();
+    toolbar.value?.focusSearch();
+  }
+}
 
 onMounted(() => {
-  void store.initialize();
+  unsubscribers.push(backend.onProjectsDropped((result) => void onDrop(result)));
+  unsubscribers.push(backend.onWindowFocus(onWindowFocus));
+  window.addEventListener('keydown', onGlobalKeydown);
+  void initialize();
 });
 
-function handleToggleSettings() {
-  store.setView(store.activeView === 'settings' ? 'projects' : 'settings');
-}
-
-function handleSaveSettings(next: Settings): Promise<boolean> {
-  return store.updateSettings(next);
-}
+onBeforeUnmount(() => {
+  unsubscribers.forEach((unsubscribe) => unsubscribe());
+  window.removeEventListener('keydown', onGlobalKeydown);
+});
 </script>
 
 <template>
-  <div class="flex h-screen min-w-[360px] flex-col bg-[var(--bg-app)] text-[var(--text-primary)]">
-    <AppHeader
-      :search-query="store.searchQuery"
-      :theme="store.settings.theme"
-      :active-view="store.activeView"
-      :project-count="store.projects.length"
-      :theme-disabled="store.saving || !store.settingsLoaded"
-      @update:search-query="store.searchQuery = $event"
-      @cycle-theme="store.cycleTheme"
-      @toggle-settings="handleToggleSettings"
-    />
-
-    <main class="flex-1 overflow-y-auto px-3.5 py-3">
-      <div
-        v-if="store.error"
-        role="alert"
-        class="mb-3 flex items-start gap-2 rounded-xl border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-2.5 text-xs text-[var(--danger)]"
-      >
-        <AlertTriangle class="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        <span class="break-words">{{ store.error }}</span>
-      </div>
-
-      <ProjectsView
-        v-if="store.activeView === 'projects'"
-        :projects="store.filteredProjects"
-        :total-projects="store.projects.length"
-        :search-query="store.searchQuery"
-        :config-dir="store.appInfo?.configDir ?? ''"
-        :loading="store.loading"
-        @clear-search="store.searchQuery = ''"
+  <div
+    data-file-drop-target
+    class="app-shell relative flex h-screen min-w-[360px] flex-col bg-[var(--bg-app)] text-[var(--text-primary)]"
+  >
+    <div class="border-b border-[var(--border-subtle)] bg-[var(--bg-surface)]">
+      <AppHeader
+        :theme="app.settings.theme"
+        :project-count="projects.projects.length"
+        :theme-disabled="app.saving || !app.settingsLoaded"
+        @cycle-theme="app.cycleTheme"
+        @open-settings="settingsOpen = true"
       />
+      <div class="space-y-2 px-3.5 pb-2.5">
+        <ProjectToolbar
+          ref="toolbar"
+          v-model:search-query="projects.searchQuery"
+          :sort="app.settings.projectSort"
+          :sort-disabled="!app.settingsLoaded"
+          :refreshing="git.refreshing"
+          @update:sort="setSort"
+          @add="addProject"
+          @refresh="refreshAll"
+          @import="startImport"
+          @export="exportProjects"
+          @search-arrow-down="projectsView?.focusList()"
+        />
+        <ProjectTabs v-model="projects.tab" :counts="projects.counts" />
+      </div>
+    </div>
 
-      <SettingsView
-        v-else
-        :settings="store.settings"
-        :config-dir="store.appInfo?.configDir ?? ''"
-        :saving="store.saving"
-        :can-save="store.settingsLoaded"
-        :save-settings="handleSaveSettings"
+    <div
+      v-if="app.error"
+      role="alert"
+      class="mx-3 mt-2 flex items-start gap-2 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger-soft)] p-2 text-xs text-[var(--danger)]"
+    >
+      <AlertTriangle class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <span class="break-words">{{ app.error }}</span>
+    </div>
+
+    <main class="flex min-h-0 flex-1 flex-col">
+      <ProjectsView
+        ref="projectsView"
+        :suspended="anyDialogOpen"
+        @add="addProject"
+        @edit="openEdit"
+        @remove="requestRemove"
+        @clear-search="projects.searchQuery = ''"
       />
     </main>
 
     <footer
-      class="flex items-center justify-between border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3.5 py-2 text-[11px] text-[var(--text-muted)]"
+      class="flex items-center justify-between gap-2 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] px-3.5 py-1.5 text-[11px] text-[var(--text-muted)]"
     >
-      <span class="truncate font-mono">
-        {{ store.appInfo?.os ?? 'linux' }}/{{ store.appInfo?.arch ?? 'amd64' }}
+      <span class="inline-flex min-w-0 items-center gap-1 truncate">
+        <template v-if="git.refreshing">
+          <LoaderCircle class="h-3 w-3 animate-spin" aria-hidden="true" />
+          Checking Git status…
+        </template>
+        <template v-else-if="git.gitUnavailable">Git not found — branch info unavailable</template>
+        <template v-else
+          >{{ projects.visible.length }} of {{ projects.projects.length }} shown</template
+        >
       </span>
-      <span>v{{ store.appInfo?.version ?? '0.1.0' }}</span>
+      <span>v{{ app.appInfo?.version ?? '' }}</span>
     </footer>
+
+    <ProjectDialog
+      :open="projectDialog !== null"
+      :mode="projectDialog?.mode ?? 'add'"
+      :project="projectDialog?.project ?? null"
+      :draft="projectDialog?.draft ?? null"
+      @saved="onProjectSaved"
+      @close="projectDialog = null"
+    />
+    <SettingsDialog :open="settingsOpen" @close="settingsOpen = false" />
+    <ImportDialog
+      :open="importPreview !== null"
+      :preview="importPreview"
+      @imported="onImported"
+      @close="importPreview = null"
+    />
+    <ConfirmDialog
+      :open="removeTarget !== null"
+      title="Remove project?"
+      :message="`“${removeTarget?.name ?? ''}” will be removed from ProjectHub. The directory ${removeTarget?.path ?? ''} and its files are not touched.`"
+      confirm-label="Remove"
+      :on-confirm="confirmRemove"
+      @close="removeTarget = null"
+    />
+    <ToastHost />
   </div>
 </template>

@@ -1,121 +1,115 @@
-import { computed, ref } from 'vue';
+import { ref } from 'vue';
 import { defineStore } from 'pinia';
-import { backend, ThemeMode } from '@/services/backend';
-import type { Info, Project, Settings } from '@/services/backend';
+import { backend, FileManagerMode, ProjectSort, TerminalMode, ThemeMode } from '@/services/backend';
+import type { Info, Settings } from '@/services/backend';
+import { errorMessage } from '@/lib/errors';
 
-export type ActiveView = 'projects' | 'settings';
+export type SettingsPatch = Partial<Omit<Settings, 'window' | 'executables' | 'customTerminal'>> & {
+  window?: Partial<Settings['window']>;
+  executables?: Partial<Settings['executables']>;
+  customTerminal?: Partial<Settings['customTerminal']>;
+};
 
 export function createDefaultSettings(): Settings {
   return {
-    schemaVersion: 1,
-    defaultEditor: 'vscode',
-    preferredTerminal: 'ghostty',
-    preferredFileManager: 'auto',
+    schemaVersion: 2,
+    defaultEditor: 'zed',
+    preferredTerminal: TerminalMode.TerminalModeGhostty,
+    preferredFileManager: FileManagerMode.FileManagerModeAuto,
     theme: ThemeMode.ThemeSystem,
     window: {
       width: 440,
-      height: 680,
+      height: 650,
       rememberSize: true,
       alwaysOnTop: false,
+    },
+    executables: { sublime: '', zed: '', ghostty: '', fileManager: '' },
+    customTerminal: { executable: '', args: [] },
+    rememberLastEditor: true,
+    doubleClickOpensEditor: true,
+    showGitDirty: true,
+    projectSort: ProjectSort.ProjectSortName,
+  };
+}
+
+/** Deep copy so queued saves never observe later mutations of a draft. */
+export function cloneSettings(s: Settings): Settings {
+  return {
+    ...s,
+    window: { ...s.window },
+    executables: { ...s.executables },
+    customTerminal: {
+      executable: s.customTerminal.executable,
+      args: [...(s.customTerminal.args ?? [])],
     },
   };
 }
 
-function formatError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+export function mergeSettings(base: Settings, patch: SettingsPatch): Settings {
+  return cloneSettings({
+    ...base,
+    ...patch,
+    window: { ...base.window, ...patch.window },
+    executables: { ...base.executables, ...patch.executables },
+    customTerminal: { ...base.customTerminal, ...patch.customTerminal },
+  });
 }
 
-function cloneSettings(s: Settings): Settings {
-  return {
-    ...s,
-    window: { ...s.window },
-  };
-}
-
+/**
+ * Application metadata and user settings. Settings writes are serialized so
+ * concurrent saves (preferences dialog, theme toggle, sort toggle) never drop
+ * each other's changes, and are refused when the existing settings failed to
+ * load so defaults never overwrite an unreadable file.
+ */
 export const useAppStore = defineStore('app', () => {
   const appInfo = ref<Info | null>(null);
   const settings = ref<Settings>(createDefaultSettings());
   const settingsLoaded = ref(false);
-  const projects = ref<Project[]>([]);
-  const searchQuery = ref('');
-  const activeView = ref<ActiveView>('projects');
-  const loading = ref(false);
   const saving = ref(false);
   const error = ref<string | null>(null);
 
   let pendingSettingsSaves = 0;
   let settingsSaveQueue: Promise<void> = Promise.resolve();
 
-  const filteredProjects = computed(() => {
-    const query = searchQuery.value.trim().toLowerCase();
-    const list = query
-      ? projects.value.filter(
-          (p) =>
-            p.name.toLowerCase().includes(query) ||
-            p.description.toLowerCase().includes(query) ||
-            p.path.toLowerCase().includes(query),
-        )
-      : [...projects.value];
-
-    return list.sort((a, b) => {
-      if (a.favorite !== b.favorite) {
-        return a.favorite ? -1 : 1;
-      }
-      return a.name.localeCompare(b.name);
-    });
-  });
-
   async function initialize(): Promise<void> {
-    loading.value = true;
     error.value = null;
-
-    const [infoResult, settingsResult, projectsResult] = await Promise.allSettled([
+    const [infoResult, settingsResult] = await Promise.allSettled([
       backend.getAppInfo(),
       backend.getSettings(),
-      backend.listProjects(),
     ]);
-
     const errors: string[] = [];
 
     if (infoResult.status === 'fulfilled') {
       appInfo.value = infoResult.value;
     } else {
-      errors.push(formatError(infoResult.reason));
+      errors.push(errorMessage(infoResult.reason));
     }
 
     if (settingsResult.status === 'fulfilled') {
-      settings.value = settingsResult.value;
+      settings.value = cloneSettings(settingsResult.value);
       settingsLoaded.value = true;
     } else {
       settingsLoaded.value = false;
-      errors.push(formatError(settingsResult.reason));
-    }
-
-    if (projectsResult.status === 'fulfilled') {
-      projects.value = projectsResult.value ?? [];
-    } else {
-      errors.push(formatError(projectsResult.reason));
+      errors.push(errorMessage(settingsResult.reason));
     }
 
     if (errors.length > 0) {
       error.value = errors.join('; ');
     }
-
-    loading.value = false;
   }
 
-  async function persistSettings(buildNext: () => Settings): Promise<boolean> {
+  function persistSettings(buildNext: () => Settings): Promise<boolean> {
     pendingSettingsSaves += 1;
     saving.value = true;
 
     const run = settingsSaveQueue.then(async () => {
-      error.value = null;
       try {
         const saved = await backend.updateSettings(buildNext());
-        settings.value = saved;
+        settings.value = cloneSettings(saved);
+        error.value = null;
         return true;
       } catch (err) {
-        error.value = formatError(err);
+        error.value = errorMessage(err);
         return false;
       } finally {
         pendingSettingsSaves -= 1;
@@ -129,56 +123,62 @@ export const useAppStore = defineStore('app', () => {
       () => undefined,
       () => undefined,
     );
-
     return run;
   }
 
-  async function updateSettings(next: Settings): Promise<boolean> {
-    if (!settingsLoaded.value) {
-      error.value = 'Cannot save preferences because existing settings failed to load.';
+  function refuseUnloaded(action: string): boolean {
+    if (settingsLoaded.value) {
       return false;
     }
+    error.value = `Cannot ${action} because existing settings failed to load.`;
+    return true;
+  }
 
+  async function updateSettings(next: Settings): Promise<boolean> {
+    if (refuseUnloaded('save preferences')) {
+      return false;
+    }
     const snapshot = cloneSettings(next);
     return persistSettings(() => snapshot);
   }
 
+  /** Applies a partial change on top of the latest saved settings when the queued save runs. */
+  async function patchSettings(
+    patch: SettingsPatch,
+    action = 'save preferences',
+  ): Promise<boolean> {
+    if (refuseUnloaded(action)) {
+      return false;
+    }
+    return persistSettings(() => mergeSettings(settings.value, patch));
+  }
+
   async function cycleTheme(): Promise<void> {
-    if (!settingsLoaded.value) {
-      error.value = 'Cannot change theme because existing settings failed to load.';
+    if (refuseUnloaded('change theme')) {
       return;
     }
-
     const order: ThemeMode[] = [ThemeMode.ThemeSystem, ThemeMode.ThemeDark, ThemeMode.ThemeLight];
     await persistSettings(() => {
       const currentIndex = order.indexOf(settings.value.theme);
       const nextTheme = order[(currentIndex + 1) % order.length] ?? ThemeMode.ThemeSystem;
-      return {
-        ...settings.value,
-        theme: nextTheme,
-        window: { ...settings.value.window },
-      };
+      return cloneSettings({ ...settings.value, theme: nextTheme });
     });
   }
 
-  function setView(view: ActiveView): void {
-    activeView.value = view;
+  function setProjectSort(sort: ProjectSort): Promise<boolean> {
+    return patchSettings({ projectSort: sort }, 'change sorting');
   }
 
   return {
     appInfo,
     settings,
     settingsLoaded,
-    projects,
-    searchQuery,
-    activeView,
-    loading,
     saving,
     error,
-    filteredProjects,
     initialize,
     updateSettings,
+    patchSettings,
     cycleTheme,
-    setView,
+    setProjectSort,
   };
 });
