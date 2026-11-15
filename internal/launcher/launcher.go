@@ -6,6 +6,7 @@ package launcher
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,16 +17,12 @@ var (
 	ErrInvalidTargetPath = errors.New("invalid target directory path")
 	// ErrInvalidExecutable indicates an executable name or path is unsafe or invalid.
 	ErrInvalidExecutable = errors.New("invalid executable name")
-)
-
-// TargetKind identifies the category of external application to launch.
-type TargetKind string
-
-// Supported external application target categories.
-const (
-	TargetEditor      TargetKind = "editor"
-	TargetTerminal    TargetKind = "terminal"
-	TargetFileManager TargetKind = "file_manager"
+	// ErrToolNotFound indicates an application could not be located.
+	ErrToolNotFound = errors.New("application not found")
+	// ErrLaunchFailed indicates an application could not be launched.
+	ErrLaunchFailed = errors.New("failed to launch application")
+	// ErrUnknownTarget indicates an unsupported launch target.
+	ErrUnknownTarget = errors.New("unknown launch target")
 )
 
 // ValidateProjectDir validates that dirPath is a clean, absolute path pointing to
@@ -44,6 +41,12 @@ func ValidateProjectDir(dirPath string) (string, error) {
 	cleaned := filepath.Clean(dirPath)
 	info, err := os.Stat(cleaned)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("%w: directory %q no longer exists: %w", ErrInvalidTargetPath, cleaned, err)
+		}
+		if errors.Is(err, fs.ErrPermission) {
+			return "", fmt.Errorf("%w: permission denied for %q: %w", ErrInvalidTargetPath, cleaned, err)
+		}
 		return "", fmt.Errorf("%w: %w", ErrInvalidTargetPath, err)
 	}
 	if !info.IsDir() {
@@ -61,6 +64,10 @@ func ValidateExecutable(name string) (string, error) {
 	}
 	if strings.ContainsAny(trimmed, "\r\n\t\x00;|&$`") {
 		return "", fmt.Errorf("%w: executable %q contains disallowed characters", ErrInvalidExecutable, name)
+	}
+	if !strings.Contains(trimmed, "/") && strings.Contains(trimmed, " ") {
+		return "", fmt.Errorf("%w: %q must be a single command name or an absolute path, without arguments",
+			ErrInvalidExecutable, name)
 	}
 	return trimmed, nil
 }
