@@ -43,6 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - VS Code, Cursor, GoLand, IntelliJ IDEA, WebStorm, PyCharm, and Neovim entries from the editor catalog; supported editors are Sublime Text and Zed.
 - The old `SettingsView`, replaced by `SettingsDialog`.
 
+### Fixed
+
+- Desktop integration: the desktop entry is now installed as `io.github.semelyanov86.projecthub.desktop` (matching the GTK application id) from the tracked `build/linux/desktop` template with `StartupWMClass=projecthub`, and the 256×256 icon goes to `hicolor/256x256`, so GNOME shows the ProjectHub icon on Wayland and X11. New `task install:desktop` / `task uninstall:desktop` register a locally built binary for the current user.
+
 ### Security
 
 - External commands use discrete arguments without a shell; launch directories are validated and child environments strip ProjectHub's GTK/WebKit/Wails, activation-token, and AppImage runtime variables.

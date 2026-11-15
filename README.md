@@ -97,6 +97,8 @@ task deb
 | `task lint` | Run `go vet`, `golangci-lint`, `vue-tsc --noEmit`, and ESLint |
 | `task format` | Format Go (`gofumpt`/`goimports`) and frontend (`prettier` + Tailwind sorting) sources |
 | `task audit` | Run `govulncheck` and `npm audit` security checks |
+| `task install:desktop` | Register the locally built `bin/projecthub` in the desktop menu with its icon (current user, `~/.local/share`) |
+| `task uninstall:desktop` | Remove the desktop entry and icon installed by `task install:desktop` |
 | `task clean` | Remove build, coverage, and packaging output directories |
 | `task doctor` | Check toolchain versions and run `wails3 doctor` |
 | `task check` | Verify formatting, run all linters, and execute all unit tests |
@@ -229,6 +231,7 @@ Catalog mutations use locked read-modify-write transactions. JSON writes are ato
 
 ## Troubleshooting
 
+- **No icon in the dock / app menu when running `bin/projecthub` directly:** GTK4 cannot set a window icon itself; GNOME takes it from an installed desktop entry whose id matches the application id `io.github.semelyanov86.projecthub` (Wayland) or `StartupWMClass=projecthub` (X11). Run `task install:desktop` once (or install the `.deb`), then restart ProjectHub.
 - **Ghostty opens incorrectly or D-Bus activation fails:** `+new-window` requires Ghostty 1.2 or later; forwarding `--working-directory` requires 1.3 or later. See the upstream [1.2 release notes](https://ghostty.org/docs/install/release-notes/1-2-0) and [1.3 release notes](https://ghostty.org/docs/install/release-notes/1-3-0). ProjectHub tries the activation command first, then starts an independent window with `--gtk-single-instance=false` if it fails or times out. Older versions that accept the command but ignore the directory may need upgrading to 1.3+.
 - **An installed application is unavailable from a desktop session:** the session may omit `~/.local/bin` from `PATH`. ProjectHub probes it automatically along with the locations above. Set an explicit executable path in Settings if detection still fails, and check any existing override because it takes precedence.
 - **settings.json or projects.json cannot be loaded:** malformed JSON and unsupported schemas are never overwritten, including during replacement import. Keep a copy of the affected file, correct it or restore a known-good backup, then retry. Settings saves are blocked while existing settings cannot be loaded.

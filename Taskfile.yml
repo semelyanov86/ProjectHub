@@ -2,6 +2,7 @@ version: '3'
 
 vars:
   APP_NAME: "projecthub"
+  DESKTOP_ID: "io.github.semelyanov86.projecthub"
   BIN_DIR: "bin"
   PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "npm"}}'
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
@@ -142,6 +143,31 @@ tasks:
           exit 1
         fi
       - npm --prefix frontend audit --audit-level=high
+
+  install:desktop:
+    summary: Registers the locally built binary in the desktop menu with its icon (current user only)
+    preconditions:
+      - sh: test -x "{{.BIN_DIR}}/{{.APP_NAME}}"
+        msg: "{{.BIN_DIR}}/{{.APP_NAME}} not found. Run `task build` first."
+    cmds:
+      - |
+        data="${XDG_DATA_HOME:-$HOME/.local/share}"
+        mkdir -p "$data/applications" "$data/icons/hicolor/256x256/apps"
+        install -m 0644 build/appicon.png "$data/icons/hicolor/256x256/apps/{{.APP_NAME}}.png"
+        sed -e 's|^Exec=.*|Exec="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}"|' build/linux/desktop \
+          > "$data/applications/{{.DESKTOP_ID}}.desktop"
+        chmod 0644 "$data/applications/{{.DESKTOP_ID}}.desktop"
+        if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q "$data/applications" || true; fi
+        if command -v gtk-update-icon-cache >/dev/null 2>&1; then gtk-update-icon-cache -q -t "$data/icons/hicolor" || true; fi
+        echo "Installed $data/applications/{{.DESKTOP_ID}}.desktop — restart ProjectHub to pick up the icon."
+
+  uninstall:desktop:
+    summary: Removes the desktop entry and icon installed by install:desktop
+    cmds:
+      - |
+        data="${XDG_DATA_HOME:-$HOME/.local/share}"
+        rm -f "$data/applications/{{.DESKTOP_ID}}.desktop" "$data/icons/hicolor/256x256/apps/{{.APP_NAME}}.png"
+        if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q "$data/applications" || true; fi
 
   clean:
     summary: Removes build, generated bindings, coverage, and distribution output directories

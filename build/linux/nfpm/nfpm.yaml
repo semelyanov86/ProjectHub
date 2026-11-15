@@ -20,9 +20,12 @@ contents:
   - src: "./bin/projecthub"
     dst: "/usr/local/bin/projecthub"
   - src: "./build/appicon.png"
-    dst: "/usr/share/icons/hicolor/128x128/apps/projecthub.png"
-  - src: "./build/linux/projecthub.desktop"
-    dst: "/usr/share/applications/projecthub.desktop"
+    dst: "/usr/share/icons/hicolor/256x256/apps/projecthub.png"
+  # The desktop file id must equal the GTK application id
+  # (io.github.semelyanov86.projecthub) so GNOME on Wayland matches the window
+  # to it; StartupWMClass=projecthub covers X11.
+  - src: "./build/linux/desktop"
+    dst: "/usr/share/applications/io.github.semelyanov86.projecthub.desktop"
 
 # Default dependencies for the GTK4 + WebKitGTK 6.0 stack (Ubuntu 24.04+ / Debian 13+)
 depends:
