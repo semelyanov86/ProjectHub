@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-11-15
+## [1.0.0] - 2026-11-15
 
 First public release.
 
@@ -34,5 +34,5 @@ First public release.
 - File paths for import and export are chosen in native Go dialogs; the webview never supplies paths to read or write. Exports refuse to overwrite the active configuration files; imports are limited to 10 MiB and 10,000 projects.
 - Configuration writes are atomic (temporary file, `fsync`, rename, directory `fsync`), and corrupted or unsupported configuration files are reported instead of being overwritten.
 
-[Unreleased]: https://github.com/semelyanov86/ProjectHub/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/semelyanov86/ProjectHub/releases/tag/v0.1.0
+[Unreleased]: https://github.com/semelyanov86/ProjectHub/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/semelyanov86/ProjectHub/releases/tag/v1.0.0

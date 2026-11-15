@@ -8,7 +8,7 @@ The `VERSION` file is the single source of the version. The application embeds i
 
 | File | Field |
 | --- | --- |
-| `VERSION` | the version, e.g. `0.1.0` |
+| `VERSION` | the version, e.g. `1.0.0` |
 | `CHANGELOG.md` | newest `## [x.y.z] - YYYY-MM-DD` section |
 | `build/config.yml` | `info.version` |
 | `frontend/package.json`, `frontend/package-lock.json` | `version` |

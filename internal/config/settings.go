@@ -131,7 +131,7 @@ type Settings struct {
 	DoubleClickOpensEditor bool              `json:"doubleClickOpensEditor"`
 	ShowGitDirty           bool              `json:"showGitDirty"`
 	ProjectSort            ProjectSort       `json:"projectSort"`
-	// CloseBehavior was added in 0.1.0 without a schema change: files that do
+	// CloseBehavior was added in 1.0.0 without a schema change: files that do
 	// not contain it load with the default.
 	CloseBehavior CloseBehavior `json:"closeBehavior"`
 }

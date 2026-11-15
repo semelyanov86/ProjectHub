@@ -1,4 +1,4 @@
-projecthub (0.1.0) noble; urgency=medium
+projecthub (1.0.0) noble; urgency=medium
 
   * First public release. The complete upstream change log is published at
     https://github.com/semelyanov86/ProjectHub/blob/main/CHANGELOG.md

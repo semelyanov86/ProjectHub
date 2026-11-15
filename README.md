@@ -35,7 +35,7 @@ If you jump between many repositories during the day, opening a project usually 
 | <img src="docs/screenshots/projects-light.png" alt="Project list with favorites, Git branches, uncommitted-changes dots and a missing directory" width="260"> | <img src="docs/screenshots/open-with-dark.png" alt="The Open with menu listing Sublime Text, Zed, Ghostty and File Manager" width="260"> | <img src="docs/screenshots/preferences-dark.png" alt="The Preferences dialog with theme, editor and terminal settings" width="260"> |
 | Favorites first, Git branch and changes, a flagged missing directory | One click opens a project in an editor, terminal or file manager | Editors, terminal, file manager, Git and window options |
 
-Captured from ProjectHub 0.1.0 on Ubuntu 24.04 (GNOME) with sample projects in a throwaway home directory.
+Captured from ProjectHub 1.0.0 on Ubuntu 24.04 (GNOME) with sample projects in a throwaway home directory.
 
 ## Installation
 
