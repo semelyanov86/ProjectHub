@@ -3,12 +3,10 @@
 package app
 
 import (
+	"context"
 	"os"
 	"runtime"
 )
-
-// Version is the semantic version of ProjectHub. It can be overridden via ldflags at build time.
-var Version = "0.1.0"
 
 // Info summarizes runtime metadata about the running ProjectHub instance.
 type Info struct {
@@ -21,14 +19,25 @@ type Info struct {
 	Arch    string `json:"arch"`
 }
 
-// Service exposes application metadata to the frontend via Wails bindings.
-type Service struct {
-	configDir string
+// Options configure the app Service.
+type Options struct {
+	// Version is the application version (the repository VERSION file).
+	Version string
+	// ConfigDir is the resolved configuration directory.
+	ConfigDir string
+	// TrayAvailable reports whether a system tray host is currently
+	// available. A nil func means the tray is never available.
+	TrayAvailable func(context.Context) bool
 }
 
-// NewService creates an app Service with the resolved configuration directory.
-func NewService(configDir string) *Service {
-	return &Service{configDir: configDir}
+// Service exposes application metadata to the frontend via Wails bindings.
+type Service struct {
+	opts Options
+}
+
+// NewService creates an app Service.
+func NewService(opts Options) *Service {
+	return &Service{opts: opts}
 }
 
 // GetInfo returns runtime application metadata.
@@ -39,10 +48,19 @@ func (s *Service) GetInfo() Info {
 	}
 	return Info{
 		Name:      "ProjectHub",
-		Version:   Version,
-		ConfigDir: s.configDir,
+		Version:   s.opts.Version,
+		ConfigDir: s.opts.ConfigDir,
 		HomeDir:   home,
 		OS:        runtime.GOOS,
 		Arch:      runtime.GOARCH,
 	}
+}
+
+// TrayAvailable reports whether the desktop session currently shows tray
+// icons. Without a tray, closing the window always quits ProjectHub.
+func (s *Service) TrayAvailable(ctx context.Context) bool {
+	if s.opts.TrayAvailable == nil {
+		return false
+	}
+	return s.opts.TrayAvailable(ctx)
 }

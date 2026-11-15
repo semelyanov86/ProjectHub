@@ -1,0 +1,45 @@
+.TH PROJECTHUB 1 "November 2026" "ProjectHub 1.0.0" "User Commands"
+.SH NAME
+projecthub \- manage and open development projects
+.SH SYNOPSIS
+.B projecthub
+[\fB\-\-version\fR]
+[\fB\-\-help\fR]
+.SH DESCRIPTION
+.B ProjectHub
+is a desktop application that keeps a list of local project directories and
+opens them in a code editor (Zed or Sublime Text), a terminal (Ghostty or a
+configured terminal) or the file manager.
+It shows the Git branch and uncommitted changes of each project and offers a
+system tray menu with recently opened projects.
+.PP
+Only one instance runs per desktop session.
+Starting
+.B projecthub
+again brings the running window to the front.
+.SH OPTIONS
+.TP
+.BR \-v ", " \-\-version
+Print the version and exit.
+.TP
+.BR \-h ", " \-\-help
+Print a short usage summary and exit.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/projecthub/settings.json
+User preferences (default
+.IR ~/.config/projecthub/settings.json ).
+.TP
+.I $XDG_CONFIG_HOME/projecthub/projects.json
+The project catalog.
+Replacement imports keep a backup next to it as
+.IR projects.json.bak\-<timestamp> .
+.PP
+Both files are created on first use and are not removed when the package is
+uninstalled.
+.SH SEE ALSO
+.BR git (1),
+.BR gio (1),
+.BR xdg\-open (1)
+.PP
+https://github.com/semelyanov86/ProjectHub

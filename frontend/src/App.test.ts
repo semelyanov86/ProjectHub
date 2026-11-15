@@ -6,6 +6,7 @@ import { backend, DirectoryState, GitState, Target } from '@/services/backend';
 import type {
   DirectoryDraft,
   DropResult,
+  Notice,
   Project,
   ProjectInspection,
   ToolStatus,
@@ -16,6 +17,7 @@ import App from './App.vue';
 vi.mock('@/services/backend', () => ({
   ThemeMode: { ThemeSystem: 'system', ThemeDark: 'dark', ThemeLight: 'light' },
   TerminalMode: { TerminalModeGhostty: 'ghostty', TerminalModeCustom: 'custom' },
+  CloseBehavior: { CloseBehaviorTray: 'tray', CloseBehaviorQuit: 'quit' },
   FileManagerMode: { FileManagerModeAuto: 'auto', FileManagerModeCustom: 'custom' },
   ProjectSort: { ProjectSortName: 'name', ProjectSortLastOpened: 'lastOpened' },
   Target: {
@@ -38,6 +40,7 @@ vi.mock('@/services/backend', () => ({
     DirectoryNotDirectory: 'not_directory',
   },
   ImportMode: { ImportMerge: 'merge', ImportReplace: 'replace' },
+  NoticeLevel: { NoticeSuccess: 'success', NoticeWarning: 'warning', NoticeError: 'error' },
   backend: {
     getAppInfo: vi.fn(),
     getSettings: vi.fn(),
@@ -61,6 +64,9 @@ vi.mock('@/services/backend', () => ({
     copyText: vi.fn(),
     onProjectsDropped: vi.fn(),
     onWindowFocus: vi.fn(),
+    onOpenSettings: vi.fn(),
+    onNotice: vi.fn(),
+    onProjectsChanged: vi.fn(),
   },
 }));
 function project(id = 'alpha', overrides: Partial<Project> = {}): Project {
@@ -127,8 +133,14 @@ let pinia: ReturnType<typeof createPinia>;
 let wrapper: VueWrapper | undefined;
 let onDrop: (result: DropResult) => void;
 let onFocus: () => void;
+let onOpenSettings: () => void;
+let onNotice: (notice: Notice) => void;
+let onProjectsChanged: () => void;
 const unsubscribeDrop = vi.fn();
 const unsubscribeFocus = vi.fn();
+const unsubscribeOpenSettings = vi.fn();
+const unsubscribeNotice = vi.fn();
+const unsubscribeProjectsChanged = vi.fn();
 function draft(): DirectoryDraft {
   return {
     cancelled: false,
@@ -166,6 +178,18 @@ beforeEach(() => {
   vi.mocked(backend.onWindowFocus).mockImplementation((callback) => {
     onFocus = callback;
     return unsubscribeFocus;
+  });
+  vi.mocked(backend.onOpenSettings).mockImplementation((callback) => {
+    onOpenSettings = callback;
+    return unsubscribeOpenSettings;
+  });
+  vi.mocked(backend.onNotice).mockImplementation((callback) => {
+    onNotice = callback;
+    return unsubscribeNotice;
+  });
+  vi.mocked(backend.onProjectsChanged).mockImplementation((callback) => {
+    onProjectsChanged = callback;
+    return unsubscribeProjectsChanged;
   });
 });
 afterEach(() => {
@@ -352,12 +376,47 @@ describe('App', () => {
       expect(rowIds()).toEqual(['alpha']);
     }
   });
-  it('unmount unsubscribes drop and focus listeners', async () => {
+  it('unmount unsubscribes drop, focus and tray listeners', async () => {
     const view = await render();
     view.unmount();
     wrapper = undefined;
     expect(unsubscribeDrop).toHaveBeenCalledOnce();
     expect(unsubscribeFocus).toHaveBeenCalledOnce();
+    expect(unsubscribeOpenSettings).toHaveBeenCalledOnce();
+    expect(unsubscribeNotice).toHaveBeenCalledOnce();
+    expect(unsubscribeProjectsChanged).toHaveBeenCalledOnce();
+  });
+  it('the tray Settings event opens Preferences', async () => {
+    await render();
+    onOpenSettings();
+    await flushPromises();
+    expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('Preferences');
+  });
+  it('the tray Settings event leaves an open dialog alone', async () => {
+    await render();
+    onDrop({ draft: draft() });
+    await flushPromises();
+    onOpenSettings();
+    await flushPromises();
+    const dialogs = Array.from(document.body.querySelectorAll('[role="dialog"]'));
+    expect(dialogs).toHaveLength(1);
+    expect(dialogs[0]?.textContent).toContain('Add Project');
+    expect(dialogs[0]?.textContent).not.toContain('Preferences');
+  });
+  it('tray notices become toasts and tray launches reload the catalog', async () => {
+    const view = await render();
+    onNotice({
+      level: 'error',
+      title: 'Could not open project',
+      detail: 'Zed was not found',
+    } as Notice);
+    await flushPromises();
+    expect(view.text()).toContain('Could not open project');
+    expect(view.text()).toContain('Zed was not found');
+    vi.mocked(backend.listProjects).mockResolvedValue(catalog());
+    onProjectsChanged();
+    await flushPromises();
+    expect(rowIds()).toContain('beta');
   });
   it('export menu exports projects and shows success', async () => {
     vi.mocked(backend.exportProjects).mockResolvedValue({

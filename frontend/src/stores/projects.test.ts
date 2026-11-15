@@ -9,6 +9,7 @@ import { useNotificationsStore } from './notifications';
 vi.mock('@/services/backend', () => ({
   ThemeMode: { ThemeSystem: 'system', ThemeDark: 'dark', ThemeLight: 'light' },
   TerminalMode: { TerminalModeGhostty: 'ghostty', TerminalModeCustom: 'custom' },
+  CloseBehavior: { CloseBehaviorTray: 'tray', CloseBehaviorQuit: 'quit' },
   FileManagerMode: { FileManagerModeAuto: 'auto', FileManagerModeCustom: 'custom' },
   ProjectSort: { ProjectSortName: 'name', ProjectSortLastOpened: 'lastOpened' },
   Target: {

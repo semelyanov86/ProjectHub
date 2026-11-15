@@ -1,26 +1,52 @@
 # Contributing to ProjectHub
 
-Thank you for your interest in contributing to ProjectHub.
+Thank you for your interest in improving ProjectHub! Bug reports, ideas and pull requests are welcome.
 
-## Development Setup
+## Reporting bugs and requesting features
 
-1. Ensure your system meets the prerequisites listed in [README.md](README.md).
-2. Verify your environment:
+Open an issue on [GitHub](https://github.com/semelyanov86/ProjectHub/issues) and include:
+
+- your Ubuntu version, desktop session (Wayland or X11) and how you installed ProjectHub (`.deb` or source);
+- the output of `projecthub --version`;
+- the steps to reproduce, and what you expected instead;
+- relevant terminal output from starting `projecthub` in a terminal.
+
+Please do not attach your `projects.json` if it contains private paths; a minimal example is enough.
+
+## Development setup
+
+1. Install the prerequisites listed in [README.md › Development](README.md#development).
+2. Check your environment:
 
    ```bash
    task doctor
    ```
 
-3. Run the verification suite before and after your changes:
+3. Run the application with hot reload:
 
    ```bash
-   task check
+   task dev
    ```
 
-## Guidelines
+## Making changes
 
-- Keep backend Go packages focused, idiomatic, and covered by unit tests.
-- Keep Vue components small (`<script setup lang="ts">`) with strict TypeScript types.
-- Follow the security rules in [AGENTS.md](AGENTS.md): never build shell commands from project paths or metadata; always pass separate arguments to `exec.Command` after validating directory paths.
-- Format code with `task format` and verify all checks pass with `task check` before opening a pull request.
-- Update `CHANGELOG.md` and `README.md` when introducing user-facing changes or new configuration options.
+- Read [AGENTS.md](AGENTS.md): it describes the architecture and the rules every change must follow (for example, never building shell commands from paths, keeping file access in Go, and atomic configuration writes).
+- Keep Go packages small and covered by unit tests; keep Vue components focused, using `<script setup lang="ts">` and strict TypeScript.
+- Tests must not start real desktop applications — use the fake process runner.
+- Format your code with `task format`.
+- Run the full verification suite before opening a pull request:
+
+  ```bash
+  task check
+  ```
+
+- If you touch packaging (`build/linux/`, `Taskfile.yml`, `main.go`, icons), also run `task deb` and, if Docker is available, `task deb:smoke`.
+- Update [CHANGELOG.md](CHANGELOG.md) (under *Unreleased*) for user-visible changes, and [README.md](README.md) when you change behaviour, settings or tasks.
+
+## Pull requests
+
+- Keep each pull request focused on one change and describe what it does and why.
+- Use [Conventional Commits](https://www.conventionalcommits.org/) style messages (`feat:`, `fix:`, `docs:` …).
+- CI runs `task check`, builds the `.deb` and installs it in clean Ubuntu 24.04 and 26.04 containers; all jobs must pass.
+
+By contributing, you agree that your contributions are licensed under the [MIT License](LICENSE).

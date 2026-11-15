@@ -2,9 +2,11 @@ package desktop
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -118,6 +120,10 @@ func TestOpenProjectMissingDirectory(t *testing.T) {
 	if !errors.Is(err, launcher.ErrInvalidTargetPath) || !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("OpenProject() error = %v, want invalid target and missing file", err)
 	}
+	want := "The directory " + p.Path + " no longer exists. Edit the project to update its location, or remove it."
+	if err.Error() != want {
+		t.Fatalf("OpenProject() message = %q, want %q", err.Error(), want)
+	}
 	if got := getTestProject(t, h.Service, p.ID); got.LastOpened != nil {
 		t.Fatalf("failed launch recorded LastOpened: %+v", got)
 	}
@@ -133,8 +139,14 @@ func TestOpenProjectUnavailableEditor(t *testing.T) {
 	if err := os.Remove(filepath.Join(h.binDir, "zed")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.OpenProject(t.Context(), p.ID, launcher.TargetZed); !errors.Is(err, launcher.ErrToolNotFound) {
+	_, err := h.OpenProject(t.Context(), p.ID, launcher.TargetZed)
+	if !errors.Is(err, launcher.ErrToolNotFound) {
 		t.Fatalf("OpenProject() error = %v, want ErrToolNotFound", err)
+	}
+	if msg := err.Error(); !strings.HasPrefix(msg, "Zed was not found (") ||
+		!strings.HasSuffix(msg, "). Install it or set its executable in Settings.") ||
+		strings.Contains(msg, "application not found") {
+		t.Fatalf("OpenProject() message = %q, want a short actionable Zed message", msg)
 	}
 	if got := getTestProject(t, h.Service, p.ID); got.LastOpened != nil {
 		t.Fatalf("unavailable editor recorded launch: %+v", got)
@@ -297,5 +309,33 @@ func TestEffectiveEditor(t *testing.T) {
 				t.Errorf("EffectiveEditor() = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestLaunchDetailStripsLauncherPrefixes(t *testing.T) {
+	cases := []struct {
+		err      error
+		sentinel error
+		tool     string
+		want     string
+	}{
+		{
+			fmt.Errorf("%w: File Manager: %w", launcher.ErrLaunchFailed, errors.New("gio: exit status 2")),
+			launcher.ErrLaunchFailed, "File manager", "gio: exit status 2",
+		},
+		{
+			fmt.Errorf("Zed: %w: \"zed, zeditor\" was not found", launcher.ErrToolNotFound),
+			launcher.ErrToolNotFound, "Zed", "\"zed, zeditor\" was not found",
+		},
+		{
+			// Only the launcher's own sentinel prefix is removed, not a later repetition.
+			fmt.Errorf("%w: Ghostty: stderr mentions application not found: x", launcher.ErrToolNotFound),
+			launcher.ErrToolNotFound, "Ghostty", "stderr mentions application not found: x",
+		},
+	}
+	for _, tc := range cases {
+		if got := launchDetail(tc.err, tc.sentinel, tc.tool); got != tc.want {
+			t.Errorf("launchDetail(%q) = %q, want %q", tc.err, got, tc.want)
+		}
 	}
 }

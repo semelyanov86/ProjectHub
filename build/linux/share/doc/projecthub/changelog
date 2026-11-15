@@ -1,0 +1,6 @@
+projecthub (1.0.0) noble; urgency=medium
+
+  * First public release. The complete upstream change log is published at
+    https://github.com/semelyanov86/ProjectHub/blob/main/CHANGELOG.md
+
+ -- Sergey Emelyanov <semelyanov86@users.noreply.github.com>  Sun, 15 Nov 2026 12:00:00 +0000

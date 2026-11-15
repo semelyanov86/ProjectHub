@@ -1,6 +1,13 @@
 import { ref } from 'vue';
 import { defineStore } from 'pinia';
-import { backend, FileManagerMode, ProjectSort, TerminalMode, ThemeMode } from '@/services/backend';
+import {
+  backend,
+  CloseBehavior,
+  FileManagerMode,
+  ProjectSort,
+  TerminalMode,
+  ThemeMode,
+} from '@/services/backend';
 import type { Info, Settings } from '@/services/backend';
 import { errorMessage } from '@/lib/errors';
 
@@ -29,6 +36,7 @@ export function createDefaultSettings(): Settings {
     doubleClickOpensEditor: true,
     showGitDirty: true,
     projectSort: ProjectSort.ProjectSortName,
+    closeBehavior: CloseBehavior.CloseBehaviorTray,
   };
 }
 

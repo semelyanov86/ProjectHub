@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=ProjectHub
+GenericName=Project Manager
+Comment=Manage and open development projects
+Exec=projecthub
+Icon=projecthub
+Terminal=false
+Categories=Development;Utility;
+Keywords=projects;editor;terminal;git;workspace;zed;sublime;ghostty;
+StartupNotify=true
+StartupWMClass=projecthub
+SingleMainWindow=true

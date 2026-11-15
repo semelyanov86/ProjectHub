@@ -38,6 +38,8 @@ tasks:
       HAS_CC:
         sh: 'wails3 tool has "gcc|clang"'
 
+  # Production builds are position independent (-buildmode=pie) so the
+  # packaged binary gets full ASLR like distribution-built executables.
   build:native:
     summary: Builds the application natively on Linux
     internal: true
@@ -59,7 +61,7 @@ tasks:
     cmds:
       - '{{if eq .OBFUSCATED "true"}}garble {{.GARBLE_ARGS}} build{{else}}go build{{end}} {{.BUILD_FLAGS}} -o {{.OUTPUT}}'
     vars:
-      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if or .EXTRA_TAGS (eq .OBFUSCATED "true")}}-tags {{if eq .OBFUSCATED "true"}}wails_obfuscated{{if .EXTRA_TAGS}},{{end}}{{end}}{{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production{{if eq .OBFUSCATED "true"}},wails_obfuscated{{end}}{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s"{{end}}'
+      BUILD_FLAGS: '{{if eq .DEV "true"}}{{if or .EXTRA_TAGS (eq .OBFUSCATED "true")}}-tags {{if eq .OBFUSCATED "true"}}wails_obfuscated{{if .EXTRA_TAGS}},{{end}}{{end}}{{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production{{if eq .OBFUSCATED "true"}},wails_obfuscated{{end}}{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -buildmode=pie -trimpath -buildvcs=false -ldflags="-w -s"{{end}}'
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
     env:
@@ -127,11 +129,11 @@ tasks:
       OUTPUT_DIR: '../../../bin'
 
   create:deb:
-    summary: Creates a deb package
+    summary: Creates dist/<app>_<version>_<arch>.deb from the production build
     deps:
       - task: build
     cmds:
-      - task: generate:dotdesktop
+      - task: stage:package
       - task: generate:deb
 
   create:rpm:
@@ -139,7 +141,7 @@ tasks:
     deps:
       - task: build
     cmds:
-      - task: generate:dotdesktop
+      - task: stage:package
       - task: generate:rpm
 
   create:aur:
@@ -147,36 +149,60 @@ tasks:
     deps:
       - task: build
     cmds:
-      - task: generate:dotdesktop
+      - task: stage:package
       - task: generate:aur
 
+  stage:package:
+    summary: Compresses the man page and changelog into bin/package for nFPM (gzip -n keeps them reproducible)
+    cmds:
+      - mkdir -p "{{.BIN_DIR}}/package"
+      - gzip -9nc build/linux/share/man/man1/{{.APP_NAME}}.1 > "{{.BIN_DIR}}/package/{{.APP_NAME}}.1.gz"
+      - gzip -9nc build/linux/share/doc/{{.APP_NAME}}/changelog > "{{.BIN_DIR}}/package/changelog.gz"
+
+  # nfpm.yaml reads PROJECTHUB_VERSION and GOARCH; SOURCE_DATE_EPOCH (the last
+  # commit time) fixes file timestamps inside the package.
   generate:deb:
     summary: Creates a deb package
     cmds:
-      - wails3 tool package -name "{{.APP_NAME}}" -format deb -config ./build/linux/nfpm/nfpm.yaml -out {{.ROOT_DIR}}/bin
+      - mkdir -p "{{.DIST_DIR}}"
+      - wails3 tool package -name "{{.APP_NAME}}" -format deb -config ./build/linux/nfpm/nfpm.yaml -out "{{.ROOT_DIR}}/{{.BIN_DIR}}/package"
+      - mv -f "{{.BIN_DIR}}/package/{{.APP_NAME}}.deb" "{{.DIST_DIR}}/{{.APP_NAME}}_{{.VERSION}}_{{.PKG_ARCH}}.deb"
+      - echo "Created {{.DIST_DIR}}/{{.APP_NAME}}_{{.VERSION}}_{{.PKG_ARCH}}.deb"
+    vars:
+      PKG_ARCH: '{{.ARCH | default ARCH}}'
+    env:
+      PROJECTHUB_VERSION: '{{.VERSION}}'
+      GOARCH: '{{.PKG_ARCH}}'
+      SOURCE_DATE_EPOCH: '{{.SOURCE_DATE_EPOCH}}'
 
   generate:rpm:
     summary: Creates a rpm package
     cmds:
-      - wails3 tool package -name "{{.APP_NAME}}" -format rpm -config ./build/linux/nfpm/nfpm.yaml -out {{.ROOT_DIR}}/bin
+      - mkdir -p "{{.DIST_DIR}}"
+      - wails3 tool package -name "{{.APP_NAME}}" -format rpm -config ./build/linux/nfpm/nfpm.yaml -out "{{.ROOT_DIR}}/{{.DIST_DIR}}"
+    env:
+      PROJECTHUB_VERSION: '{{.VERSION}}'
+      GOARCH: '{{.ARCH | default ARCH}}'
+      SOURCE_DATE_EPOCH: '{{.SOURCE_DATE_EPOCH}}'
 
   generate:aur:
     summary: Creates a arch linux packager package
     cmds:
-      - wails3 tool package -name "{{.APP_NAME}}" -format archlinux -config ./build/linux/nfpm/nfpm.yaml -out {{.ROOT_DIR}}/bin
+      - mkdir -p "{{.DIST_DIR}}"
+      - wails3 tool package -name "{{.APP_NAME}}" -format archlinux -config ./build/linux/nfpm/nfpm.yaml -out "{{.ROOT_DIR}}/{{.DIST_DIR}}"
+    env:
+      PROJECTHUB_VERSION: '{{.VERSION}}'
+      GOARCH: '{{.ARCH | default ARCH}}'
+      SOURCE_DATE_EPOCH: '{{.SOURCE_DATE_EPOCH}}'
 
   generate:dotdesktop:
-    summary: Generates a `.desktop` file
+    summary: Copies the tracked desktop entry to build/linux/<app>.desktop for the AppImage
     dir: build
     cmds:
       - mkdir -p {{.ROOT_DIR}}/build/linux/appimage
-      - wails3 generate .desktop -name "{{.APP_NAME}}" -exec "{{.EXEC}}" -icon "{{.ICON}}" -outputfile "{{.ROOT_DIR}}/build/linux/{{.APP_NAME}}.desktop" -categories "{{.CATEGORIES}}"
-    vars:
-      APP_NAME: '{{.APP_NAME}}'
-      EXEC: '{{.APP_NAME}}'
-      ICON: '{{.APP_NAME}}'
-      CATEGORIES: 'Development;'
-      OUTPUTFILE: '{{.ROOT_DIR}}/build/linux/{{.APP_NAME}}.desktop'
+      # The .deb installs build/linux/share/applications/<app id>.desktop
+      # directly; the AppImage tooling expects the entry at this path.
+      - cp "{{.ROOT_DIR}}/build/linux/share/applications/{{.DESKTOP_ID}}.desktop" "{{.ROOT_DIR}}/build/linux/{{.APP_NAME}}.desktop"
 
   run:
     cmds:
@@ -194,7 +220,7 @@ tasks:
     cmds:
       # PGP_KEY is optional: if unset, `wails3 tool sign` falls back to the key
       # configured globally via `wails3 setup`.
-      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}*.deb" {{if .PGP_KEY}}--pgp-key "{{.PGP_KEY}}"{{end}} {{if .SIGN_ROLE}}--role "{{.SIGN_ROLE}}"{{end}}
+      - wails3 tool sign --input "{{.DIST_DIR}}/{{.APP_NAME}}*.deb" {{if .PGP_KEY}}--pgp-key "{{.PGP_KEY}}"{{end}} {{if .SIGN_ROLE}}--role "{{.SIGN_ROLE}}"{{end}}
 
   sign:rpm:
     summary: Signs the RPM package
@@ -206,7 +232,7 @@ tasks:
     deps:
       - task: create:rpm
     cmds:
-      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}*.rpm" {{if .PGP_KEY}}--pgp-key "{{.PGP_KEY}}"{{end}}
+      - wails3 tool sign --input "{{.DIST_DIR}}/{{.APP_NAME}}*.rpm" {{if .PGP_KEY}}--pgp-key "{{.PGP_KEY}}"{{end}}
 
   sign:packages:
     summary: Signs all Linux packages (DEB and RPM)

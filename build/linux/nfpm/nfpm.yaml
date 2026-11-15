@@ -1,83 +1,123 @@
-# Feel free to remove those if you don't want/need to use them.
-# Make sure to check the documentation at https://nfpm.goreleaser.com
+# nFPM configuration used by `wails3 tool package` (task deb / task linux:create:deb).
+# Documentation: https://nfpm.goreleaser.com/configuration/
 #
-# The lines below are called `modelines`. See `:help modeline`
+# PROJECTHUB_VERSION, GOARCH and SOURCE_DATE_EPOCH are exported by the Taskfile
+# (VERSION file, target architecture, last commit time for reproducible mtimes).
+# Staged files under bin/package/ are produced by `task linux:stage:package`.
 
 name: "projecthub"
-arch: ${GOARCH}
+arch: "${GOARCH}"
 platform: "linux"
-version: "0.1.0"
+version: "${PROJECTHUB_VERSION}"
 section: "devel"
 priority: "optional"
 maintainer: "Sergey Emelyanov <semelyanov86@users.noreply.github.com>"
-description: "Lightweight desktop project manager for Linux developers"
-vendor: "ProjectHub"
+description: |-
+  Manage and open development projects
+  ProjectHub is a lightweight, local-first desktop project manager. It keeps a
+  list of local project directories and opens them in Zed or Sublime Text, in
+  Ghostty or another terminal, or in the file manager. It shows read-only Git
+  branch information, supports favorites, search and JSON import/export, and
+  offers a system tray menu with recently opened projects.
+vendor: "Sergey Emelyanov"
 homepage: "https://github.com/semelyanov86/ProjectHub"
 license: "MIT"
-release: "1"
+
+# Runtime libraries of the default Wails 3 GTK4 + WebKitGTK 6.0 build, as
+# computed by dpkg-shlibdeps on Ubuntu 24.04 (the build baseline). The same
+# package names exist on Ubuntu 26.04. `task deb` re-checks this list against
+# dpkg-shlibdeps for every build (build/linux/verify-deb.sh).
+depends:
+  - libc6 (>= 2.34)
+  - libglib2.0-0t64 (>= 2.74.0)
+  - libgtk-4-1 (>= 4.13.8)
+  - libjavascriptcoregtk-6.0-1
+  - libsoup-3.0-0 (>= 2.4.0)
+  - libwebkitgtk-6.0-4 (>= 2.39.91)
+  - libx11-6
+# Git powers the branch/changes indicators; ProjectHub works without it.
+recommends:
+  - git
 
 contents:
   - src: "./bin/projecthub"
-    dst: "/usr/local/bin/projecthub"
-  - src: "./build/appicon.png"
-    dst: "/usr/share/icons/hicolor/256x256/apps/projecthub.png"
-  # The desktop file id must equal the GTK application id
-  # (io.github.semelyanov86.projecthub) so GNOME on Wayland matches the window
-  # to it; StartupWMClass=projecthub covers X11.
-  - src: "./build/linux/desktop"
+    dst: "/usr/bin/projecthub"
+    file_info:
+      mode: 0755
+  # The desktop file id equals the GTK application id so GNOME on Wayland
+  # matches the window to it; StartupWMClass=projecthub covers X11.
+  - src: "./build/linux/share/applications/io.github.semelyanov86.projecthub.desktop"
     dst: "/usr/share/applications/io.github.semelyanov86.projecthub.desktop"
+    file_info:
+      mode: 0644
+  - src: "./build/linux/share/metainfo/io.github.semelyanov86.projecthub.metainfo.xml"
+    dst: "/usr/share/metainfo/io.github.semelyanov86.projecthub.metainfo.xml"
+    file_info:
+      mode: 0644
+  - src: "./build/icons/projecthub.svg"
+    dst: "/usr/share/icons/hicolor/scalable/apps/projecthub.svg"
+    file_info:
+      mode: 0644
+  - src: "./build/linux/share/icons/hicolor/16x16/apps/projecthub.png"
+    dst: "/usr/share/icons/hicolor/16x16/apps/projecthub.png"
+    file_info:
+      mode: 0644
+  - src: "./build/linux/share/icons/hicolor/22x22/apps/projecthub.png"
+    dst: "/usr/share/icons/hicolor/22x22/apps/projecthub.png"
+    file_info:
+      mode: 0644
+  - src: "./build/linux/share/icons/hicolor/24x24/apps/projecthub.png"
+    dst: "/usr/share/icons/hicolor/24x24/apps/projecthub.png"
+    file_info:
+      mode: 0644
+  - src: "./build/linux/share/icons/hicolor/32x32/apps/projecthub.png"
+    dst: "/usr/share/icons/hicolor/32x32/apps/projecthub.png"
+    file_info:
+      mode: 0644
+  - src: "./build/linux/share/icons/hicolor/48x48/apps/projecthub.png"
+    dst: "/usr/share/icons/hicolor/48x48/apps/projecthub.png"
+    file_info:
+      mode: 0644
+  - src: "./build/linux/share/icons/hicolor/64x64/apps/projecthub.png"
+    dst: "/usr/share/icons/hicolor/64x64/apps/projecthub.png"
+    file_info:
+      mode: 0644
+  - src: "./build/linux/share/icons/hicolor/128x128/apps/projecthub.png"
+    dst: "/usr/share/icons/hicolor/128x128/apps/projecthub.png"
+    file_info:
+      mode: 0644
+  - src: "./build/linux/share/icons/hicolor/256x256/apps/projecthub.png"
+    dst: "/usr/share/icons/hicolor/256x256/apps/projecthub.png"
+    file_info:
+      mode: 0644
+  - src: "./build/linux/share/icons/hicolor/512x512/apps/projecthub.png"
+    dst: "/usr/share/icons/hicolor/512x512/apps/projecthub.png"
+    file_info:
+      mode: 0644
+  - src: "./bin/package/projecthub.1.gz"
+    dst: "/usr/share/man/man1/projecthub.1.gz"
+    file_info:
+      mode: 0644
+  - src: "./build/linux/share/doc/projecthub/copyright"
+    dst: "/usr/share/doc/projecthub/copyright"
+    file_info:
+      mode: 0644
+  - src: "./bin/package/changelog.gz"
+    dst: "/usr/share/doc/projecthub/changelog.gz"
+    file_info:
+      mode: 0644
 
-# Default dependencies for the GTK4 + WebKitGTK 6.0 stack (Ubuntu 24.04+ / Debian 13+)
-depends:
-  - libgtk-4-1
-  - libwebkitgtk-6.0-4
+# No maintainer scripts: the desktop database, icon cache and man-db index are
+# refreshed by dpkg triggers of desktop-file-utils, the icon theme and man-db,
+# and removing the package removes every installed file. User configuration in
+# ~/.config/projecthub is never created or removed by the package.
 
-# Distribution-specific overrides for different package formats
 overrides:
-  # RPM packages for Fedora / RHEL / AlmaLinux / Rocky Linux
   rpm:
     depends:
       - gtk4
       - webkitgtk6.0
-
-  # Arch Linux packages
   archlinux:
     depends:
       - gtk4
       - webkitgtk-6.0
-
-# scripts section to ensure desktop database is updated after install
-scripts:
-  postinstall: "./build/linux/nfpm/scripts/postinstall.sh"
-  # You can also add preremove, postremove if needed
-  # preremove: "./build/linux/nfpm/scripts/preremove.sh"
-  # postremove: "./build/linux/nfpm/scripts/postremove.sh"
-
-# If you build your app with -tags gtk3 (legacy WebKit2GTK 4.1 stack — supported through v3.0.x, removed in v3.1),
-# replace the depends/overrides above with these:
-#
-# depends:
-#   - libgtk-3-0
-#   - libwebkit2gtk-4.1-0
-# overrides:
-#   rpm:
-#     depends:
-#       - gtk3
-#       - webkit2gtk4.1
-#   archlinux:
-#     depends:
-#       - gtk3
-#       - webkit2gtk-4.1
-#
-# replaces:
-#   - foobar
-# provides:
-#   - bar
-# recommends:
-#   - whatever
-# suggests:
-#   - something-else
-# conflicts:
-#   - not-foo
-#   - not-bar
-# changelog: "changelog.yaml"

@@ -5,5 +5,5 @@
 ## Verification
 
 - [ ] `task check` passes
-- [ ] `task build` succeeds
+- [ ] `task build` succeeds (and `task deb` when packaging, `main.go` or icons changed)
 - [ ] Updated `README.md` / `CHANGELOG.md` if applicable

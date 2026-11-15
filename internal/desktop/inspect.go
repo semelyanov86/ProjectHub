@@ -15,6 +15,11 @@ import (
 // frontend requests larger catalogs in successive batches.
 const MaxInspectBatch = 64
 
+// directoryCheckTimeout bounds the existence checks of one batch, so a
+// directory on an unresponsive network mount (stale NFS or SSHFS) is reported
+// as inaccessible instead of blocking the whole refresh.
+const directoryCheckTimeout = 2 * time.Second
+
 // DirectoryState describes whether a project's directory is usable.
 type DirectoryState string
 
@@ -52,19 +57,24 @@ func (s *Service) InspectProjects(ctx context.Context, ids []string) ([]ProjectI
 	}
 
 	results := make([]ProjectInspection, 0, len(ids))
-	var gitDirs []string
-	var gitIndexes []int
+	paths := make([]string, 0, len(ids))
 	for _, id := range ids {
 		i, ok := byID[id]
 		if !ok {
 			continue
 		}
 		p := projects[i]
-		state := directoryState(p.Path)
-		results = append(results, ProjectInspection{ProjectID: p.ID, Path: p.Path, Directory: state})
+		results = append(results, ProjectInspection{ProjectID: p.ID, Path: p.Path})
+		paths = append(paths, p.Path)
+	}
+
+	var gitDirs []string
+	var gitIndexes []int
+	for i, state := range directoryStates(ctx, paths, directoryCheckTimeout, directoryState) {
+		results[i].Directory = state
 		if state == DirectoryPresent {
-			gitDirs = append(gitDirs, p.Path)
-			gitIndexes = append(gitIndexes, len(results)-1)
+			gitDirs = append(gitDirs, results[i].Path)
+			gitIndexes = append(gitIndexes, i)
 		}
 	}
 
@@ -77,6 +87,42 @@ func (s *Service) InspectProjects(ctx context.Context, ids []string) ([]ProjectI
 		results[i].CheckedAt = checked
 	}
 	return results, nil
+}
+
+// directoryStates checks all paths concurrently. Checks that have not finished
+// when timeout expires or ctx ends are reported as DirectoryInaccessible; their
+// goroutines finish on their own once the filesystem answers.
+func directoryStates(
+	ctx context.Context,
+	paths []string,
+	timeout time.Duration,
+	check func(string) DirectoryState,
+) []DirectoryState {
+	type checked struct {
+		index int
+		state DirectoryState
+	}
+	states := make([]DirectoryState, len(paths))
+	for i := range states {
+		states[i] = DirectoryInaccessible
+	}
+	done := make(chan checked, len(paths)) // buffered: late checks never block
+	for i, path := range paths {
+		go func() { done <- checked{index: i, state: check(path)} }()
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for range paths {
+		select {
+		case result := <-done:
+			states[result.index] = result.state
+		case <-timer.C:
+			return states
+		case <-ctx.Done():
+			return states
+		}
+	}
+	return states
 }
 
 func directoryState(path string) DirectoryState {
