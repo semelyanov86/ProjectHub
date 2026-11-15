@@ -4,7 +4,14 @@ import AppDialog from '@/components/ui/AppDialog.vue';
 import AppButton from '@/components/ui/AppButton.vue';
 import AppBadge from '@/components/ui/AppBadge.vue';
 import AppInput from '@/components/ui/AppInput.vue';
-import { backend, FileManagerMode, Target, TerminalMode, ThemeMode } from '@/services/backend';
+import {
+  backend,
+  CloseBehavior,
+  FileManagerMode,
+  Target,
+  TerminalMode,
+  ThemeMode,
+} from '@/services/backend';
 import type { Settings } from '@/services/backend';
 import { cloneSettings, useAppStore } from '@/stores/app';
 import type { SettingsPatch } from '@/stores/app';
@@ -12,6 +19,7 @@ import { useToolsStore } from '@/stores/tools';
 import { useNotificationsStore } from '@/stores/notifications';
 import { EDITORS } from '@/lib/editors';
 import { errorMessage } from '@/lib/errors';
+import { abbreviateHome } from '@/lib/projects';
 
 const props = defineProps<{ open: boolean }>();
 const emit = defineEmits<{ close: [] }>();
@@ -24,6 +32,11 @@ let baseline = cloneSettings(app.settings);
 const argumentsText = ref('');
 const selectedPreset = ref('');
 const saveFailed = ref(false);
+const configDirLabel = computed(() =>
+  app.appInfo ? abbreviateHome(app.appInfo.configDir, app.appInfo.homeDir) : '~/.config/projecthub',
+);
+/** null while unknown (not yet checked or the check failed). */
+const trayAvailable = ref<boolean | null>(null);
 
 const sections = [
   'Appearance',
@@ -141,6 +154,7 @@ watch(
     resetDraft();
     void tools.loadPresets();
     void tools.refresh();
+    void checkTray();
   },
   { immediate: true },
 );
@@ -151,6 +165,14 @@ watch(
     if (loaded && props.open) resetDraft();
   },
 );
+
+async function checkTray() {
+  try {
+    trayAvailable.value = await backend.trayAvailable();
+  } catch {
+    trayAvailable.value = null;
+  }
+}
 
 function choosePreset() {
   const preset = (tools.presets ?? []).find((item) => item.id === selectedPreset.value);
@@ -455,6 +477,37 @@ async function save() {
               class="accent-[var(--accent)]"
             />Always on top</label
           >
+          <fieldset class="space-y-1.5 pt-1 text-xs text-[var(--text-secondary)]">
+            <legend class="mb-1">When the window is closed</legend>
+            <label class="flex items-center gap-2"
+              ><input
+                v-model="draft.closeBehavior"
+                :name="`${id}-close`"
+                type="radio"
+                :value="CloseBehavior.CloseBehaviorTray"
+                class="accent-[var(--accent)]"
+              />Keep running in the system tray</label
+            >
+            <label class="flex items-center gap-2"
+              ><input
+                v-model="draft.closeBehavior"
+                :name="`${id}-close`"
+                type="radio"
+                :value="CloseBehavior.CloseBehaviorQuit"
+                class="accent-[var(--accent)]"
+              />Quit ProjectHub</label
+            >
+          </fieldset>
+          <p
+            v-if="
+              trayAvailable === false && draft.closeBehavior === CloseBehavior.CloseBehaviorTray
+            "
+            data-testid="tray-unavailable"
+            class="text-[11px] text-[var(--text-muted)]"
+          >
+            No system tray was detected in this session, so closing the window quits ProjectHub. On
+            GNOME, tray icons need the AppIndicator extension (enabled by default on Ubuntu).
+          </p>
         </template>
       </section>
     </form>
@@ -463,7 +516,7 @@ async function save() {
         class="mr-auto min-w-0 truncate text-[11px] text-[var(--text-muted)]"
         :title="`Saved in ${app.appInfo?.configDir ?? '~/.config/projecthub'}`"
       >
-        Saved in {{ app.appInfo?.configDir ?? '~/.config/projecthub' }}
+        Saved in {{ configDirLabel }}
       </p>
       <AppButton variant="secondary" size="sm" :disabled="app.saving" @click="emit('close')"
         >Cancel</AppButton

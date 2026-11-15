@@ -213,6 +213,7 @@ func TestDefaultSettingsV2(t *testing.T) {
 		Theme: ThemeSystem, Window: WindowPreferences{Width: 440, Height: 650, RememberSize: true},
 		CustomTerminal: TerminalCommand{Args: []string{}}, RememberLastEditor: true,
 		DoubleClickOpensEditor: true, ShowGitDirty: true, ProjectSort: ProjectSortName,
+		CloseBehavior: CloseBehaviorTray,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("DefaultSettings() = %+v; want %+v", got, want)

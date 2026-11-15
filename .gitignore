@@ -23,10 +23,11 @@ go.work.sum
 .env
 .env.*
 
-# Wails / Task build artifacts
+# Wails / Task build artifacts and packages
 .task/
 .wails/
 bin/
+dist/
 build/linux/*.desktop
 build/linux/appimage/build/
 build/linux/appimage/*.png

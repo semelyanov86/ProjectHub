@@ -109,6 +109,15 @@ export function initials(name: string): string {
     .toLocaleUpperCase();
 }
 
+/** Shortens a path inside the home directory to "~/…" for display. */
+export function abbreviateHome(path: string, homeDir: string | null | undefined): string {
+  const home = (homeDir ?? '').replace(/\/+$/u, '');
+  if (home && (path === home || path.startsWith(`${home}/`))) {
+    return `~${path.slice(home.length)}`;
+  }
+  return path;
+}
+
 /** Stable hue (0-359) derived from the project id for avatar colouring. */
 export function avatarHue(id: string): number {
   let hash = 0;

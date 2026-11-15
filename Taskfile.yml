@@ -4,6 +4,14 @@ vars:
   APP_NAME: "projecthub"
   DESKTOP_ID: "io.github.semelyanov86.projecthub"
   BIN_DIR: "bin"
+  DIST_DIR: "dist"
+  # VERSION is the single source of the application and package version.
+  VERSION:
+    sh: tr -d '[:space:]' < VERSION
+  # Timestamps inside packages come from the last commit (reproducible builds).
+  SOURCE_DATE_EPOCH:
+    sh: git log -1 --format=%ct 2>/dev/null || date +%s
+  DEB_FILE: '{{.DIST_DIR}}/{{.APP_NAME}}_{{.VERSION}}_{{.ARCH | default ARCH}}.deb'
   PACKAGE_MANAGER: '{{.PACKAGE_MANAGER | default "npm"}}'
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
   GOOS: '{{.GOOS | default OS}}'
@@ -18,7 +26,7 @@ includes:
 
 tasks:
   dev:
-    summary: Runs ProjectHub in Wails development mode
+    desc: Runs ProjectHub in Wails development mode
     preconditions:
       - sh: command -v wails3 >/dev/null 2>&1
         msg: "wails3 CLI not found in PATH. Ensure $(go env GOPATH)/bin is in your PATH."
@@ -26,7 +34,7 @@ tasks:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 
   build:
-    summary: Builds the production desktop binary
+    desc: Builds the production desktop binary (bin/projecthub)
     preconditions:
       - sh: command -v wails3 >/dev/null 2>&1
         msg: "wails3 CLI not found in PATH. Ensure $(go env GOPATH)/bin is in your PATH."
@@ -34,27 +42,73 @@ tasks:
       - task: "{{.GOOS}}:build"
 
   package:
-    summary: Packages production distribution artifacts for the target OS
+    desc: Packages production distribution artifacts for the target OS
     cmds:
       - task: "{{.GOOS}}:package"
 
   deb:
-    summary: Builds a Debian/Ubuntu .deb package for Linux
+    desc: Builds dist/projecthub_<version>_<arch>.deb and verifies its metadata and contents
     preconditions:
       - sh: test "$(uname -s)" = "Linux"
         msg: "Building a .deb package is only supported on Linux hosts."
       - sh: command -v wails3 >/dev/null 2>&1
         msg: "wails3 CLI not found in PATH. Ensure $(go env GOPATH)/bin is in your PATH."
+      - sh: command -v dpkg-deb >/dev/null 2>&1
+        msg: "dpkg-deb not found; it is needed to verify the package (sudo apt install dpkg)."
     cmds:
+      - task: version:check
       - task: linux:create:deb
+      - task: deb:verify
+
+  deb:verify:
+    desc: Verifies the built .deb (control fields, files, dependencies, desktop metadata)
+    preconditions:
+      - sh: test -f "{{.DEB_FILE}}"
+        msg: "{{.DEB_FILE}} not found. Run `task deb` first."
+    cmds:
+      - bash build/linux/verify-deb.sh "{{.DEB_FILE}}" "{{.VERSION}}"
+
+  deb:smoke:
+    desc: Installs the built .deb in clean Ubuntu 24.04 and 26.04 containers and runs GUI smoke tests (needs Docker)
+    summary: |
+      Installs the built .deb in clean Ubuntu containers and runs GUI smoke tests (needs Docker).
+      Pass IMAGES="ubuntu:24.04" to test a single image. Logs and screenshots go to dist/smoke/.
+    preconditions:
+      - sh: test -f "{{.DEB_FILE}}"
+        msg: "{{.DEB_FILE}} not found. Run `task deb` first."
+      - sh: docker info >/dev/null 2>&1
+        msg: "Docker is required for the container smoke tests."
+    cmds:
+      - bash build/linux/smoke-test.sh "{{.DEB_FILE}}" {{.IMAGES}}
+
+  install:
+    desc: Installs the locally built .deb system-wide with apt (runs sudo, asks for confirmation)
+    prompt: 'Install {{.DEB_FILE}} system-wide with "sudo apt install"?'
+    preconditions:
+      - sh: test -f "{{.DEB_FILE}}"
+        msg: "{{.DEB_FILE}} not found. Run `task deb` first."
+      - sh: command -v apt >/dev/null 2>&1
+        msg: "apt not found; install the package with your distribution's package manager."
+    cmds:
+      # apt resolves the runtime dependencies and asks again before changing the system.
+      - sudo apt install "{{.ROOT_DIR}}/{{.DEB_FILE}}"
+
+  uninstall:
+    desc: Removes the projecthub package with apt (runs sudo, asks for confirmation); ~/.config/projecthub is kept
+    prompt: 'Remove the projecthub package with "sudo apt remove"? Your projects and settings in ~/.config/projecthub are kept.'
+    preconditions:
+      - sh: dpkg-query -W -f='${Status}' projecthub 2>/dev/null | grep -q 'install ok installed'
+        msg: "The projecthub package is not installed."
+    cmds:
+      - sudo apt remove projecthub
 
   run:
-    summary: Runs the built desktop binary
+    desc: Runs the built desktop binary
     cmds:
       - task: "{{.GOOS}}:run"
 
   prepare:
-    summary: Generates Wails TypeScript bindings and builds frontend assets required by Go embed and typecheck
+    desc: Generates Wails TypeScript bindings and builds frontend assets required by Go embed and typecheck
     run: once
     preconditions:
       - sh: command -v wails3 >/dev/null 2>&1
@@ -63,27 +117,27 @@ tasks:
       - task: common:build:frontend
 
   test:
-    summary: Runs Go backend and Vue frontend unit tests
+    desc: Runs Go backend and Vue frontend unit tests
     cmds:
       - task: test:go
       - task: test:frontend
 
   test:go:
-    summary: Runs Go unit tests with the race detector
+    desc: Runs Go unit tests with the race detector
     deps:
       - prepare
     cmds:
       - go test -race . ./internal/...
 
   test:frontend:
-    summary: Runs frontend Vitest suite
+    desc: Runs frontend Vitest suite
     deps:
       - common:install:frontend:deps
     cmds:
       - npm --prefix frontend run test
 
   test:coverage:
-    summary: Runs Go and frontend tests with coverage reporting
+    desc: Runs Go and frontend tests with coverage reporting
     deps:
       - prepare
     cmds:
@@ -91,36 +145,37 @@ tasks:
       - npm --prefix frontend run test:coverage
 
   lint:
-    summary: Runs Go vet, golangci-lint, TypeScript typecheck, and ESLint
+    desc: Runs Go vet, golangci-lint, TypeScript typecheck, ESLint, and shell syntax checks
     deps:
       - prepare
     preconditions:
       - sh: command -v golangci-lint >/dev/null 2>&1
-        msg: "golangci-lint not found in PATH. Install v2 via: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
+        msg: "golangci-lint not found in PATH. Install v2 via: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0"
     cmds:
       - go vet . ./internal/...
       - golangci-lint run . ./internal/...
       - npm --prefix frontend run typecheck
       - npm --prefix frontend run lint
+      - for script in build/linux/*.sh build/linux/smoke/*.sh scripts/*.sh; do bash -n "$script"; done
 
   format:
-    summary: Formats Go (gofumpt/goimports) and frontend (Prettier + Tailwind) sources
+    desc: Formats Go (gofumpt/goimports) and frontend (Prettier + Tailwind) sources
     deps:
       - common:install:frontend:deps
     preconditions:
       - sh: command -v golangci-lint >/dev/null 2>&1
-        msg: "golangci-lint not found in PATH. Install v2 via: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
+        msg: "golangci-lint not found in PATH. Install v2 via: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0"
     cmds:
       - golangci-lint fmt . ./internal/...
       - npm --prefix frontend run format
 
   format:check:
-    summary: Verifies Go and frontend formatting without modifying files
+    desc: Verifies Go and frontend formatting without modifying files
     deps:
       - common:install:frontend:deps
     preconditions:
       - sh: command -v golangci-lint >/dev/null 2>&1
-        msg: "golangci-lint not found in PATH. Install v2 via: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest"
+        msg: "golangci-lint not found in PATH. Install v2 via: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0"
     cmds:
       - |
         diff=$(golangci-lint fmt --diff . ./internal/...)
@@ -130,8 +185,17 @@ tasks:
         fi
       - npm --prefix frontend run format:check
 
+  version:check:
+    desc: Verifies that VERSION matches every file that records the version (pass TAG=vX.Y.Z to check a tag too)
+    # TAG goes through the environment, never into the command line, so a tag
+    # name cannot be interpreted by the shell.
+    env:
+      TAG: '{{.TAG | default ""}}'
+    cmds:
+      - bash scripts/check-version.sh
+
   audit:
-    summary: Runs Go vulnerability scan (govulncheck) and npm audit
+    desc: Runs Go vulnerability scan (govulncheck) and npm audit
     cmds:
       - |
         if command -v govulncheck >/dev/null 2>&1; then
@@ -144,59 +208,66 @@ tasks:
         fi
       - npm --prefix frontend audit --audit-level=high
 
+  icons:
+    desc: Regenerates the PNG icon set and tray icon from build/icons/*.svg (needs rsvg-convert or inkscape)
+    cmds:
+      - bash scripts/render-icons.sh
+
   install:desktop:
-    summary: Registers the locally built binary in the desktop menu with its icon (current user only)
+    desc: Development helper — registers bin/projecthub in the current user's application menu (no sudo)
     preconditions:
       - sh: test -x "{{.BIN_DIR}}/{{.APP_NAME}}"
         msg: "{{.BIN_DIR}}/{{.APP_NAME}} not found. Run `task build` first."
     cmds:
       - |
         data="${XDG_DATA_HOME:-$HOME/.local/share}"
-        mkdir -p "$data/applications" "$data/icons/hicolor/256x256/apps"
-        install -m 0644 build/appicon.png "$data/icons/hicolor/256x256/apps/{{.APP_NAME}}.png"
-        sed -e 's|^Exec=.*|Exec="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}"|' build/linux/desktop \
-          > "$data/applications/{{.DESKTOP_ID}}.desktop"
+        mkdir -p "$data/applications"
+        for icon in build/linux/share/icons/hicolor/*/apps/{{.APP_NAME}}.png; do
+          size_dir=$(basename "$(dirname "$(dirname "$icon")")")
+          install -D -m 0644 "$icon" "$data/icons/hicolor/$size_dir/apps/{{.APP_NAME}}.png"
+        done
+        install -D -m 0644 build/icons/projecthub.svg "$data/icons/hicolor/scalable/apps/{{.APP_NAME}}.svg"
+        sed -e 's|^Exec=.*|Exec="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}"|' \
+          "build/linux/share/applications/{{.DESKTOP_ID}}.desktop" > "$data/applications/{{.DESKTOP_ID}}.desktop"
         chmod 0644 "$data/applications/{{.DESKTOP_ID}}.desktop"
         if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q "$data/applications" || true; fi
         if command -v gtk-update-icon-cache >/dev/null 2>&1; then gtk-update-icon-cache -q -t "$data/icons/hicolor" || true; fi
         echo "Installed $data/applications/{{.DESKTOP_ID}}.desktop — restart ProjectHub to pick up the icon."
 
   uninstall:desktop:
-    summary: Removes the desktop entry and icon installed by install:desktop
+    desc: Development helper — removes the desktop entry and icons installed by install:desktop
     cmds:
       - |
         data="${XDG_DATA_HOME:-$HOME/.local/share}"
-        rm -f "$data/applications/{{.DESKTOP_ID}}.desktop" "$data/icons/hicolor/256x256/apps/{{.APP_NAME}}.png"
+        rm -f "$data/applications/{{.DESKTOP_ID}}.desktop" "$data/icons/hicolor/scalable/apps/{{.APP_NAME}}.svg"
+        rm -f "$data"/icons/hicolor/*/apps/{{.APP_NAME}}.png
         if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database -q "$data/applications" || true; fi
+        if command -v gtk-update-icon-cache >/dev/null 2>&1 && [ -d "$data/icons/hicolor" ]; then gtk-update-icon-cache -q -t "$data/icons/hicolor" || true; fi
 
   clean:
-    summary: Removes build, generated bindings, coverage, and distribution output directories
+    desc: Removes build output, generated bindings, coverage, and packages in dist/
     cmds:
-      - rm -rf "{{.BIN_DIR}}" frontend/dist frontend/bindings frontend/coverage coverage.out build/linux/appimage/build build/linux/*.desktop
+      - rm -rf "{{.BIN_DIR}}" "{{.DIST_DIR}}" frontend/dist frontend/bindings frontend/coverage coverage.out build/linux/appimage/build build/linux/*.desktop .task
 
   doctor:
-    summary: Verifies Go, Node, Task, linters, and Wails 3 environment readiness
+    desc: Checks the toolchain, GTK4/WebKitGTK development libraries, packaging tools, and runs wails3 doctor
     cmds:
-      - go version
-      - node --version
-      - npm --version
-      - task --version
-      - golangci-lint --version
-      - wails3 doctor
+      - bash scripts/doctor.sh
 
   check:
-    summary: Runs formatting verification, linting, typechecking, and all unit tests
+    desc: Runs version consistency, formatting verification, linting, typechecking, and all unit tests
     cmds:
+      - task: version:check
       - task: format:check
       - task: lint
       - task: test
 
   build:server:
-    summary: Builds the application in server mode (no GUI, HTTP server only)
+    desc: Builds the application in server mode (no GUI, HTTP server only)
     cmds:
       - task: common:build:server
 
   run:server:
-    summary: Runs the application in server mode
+    desc: Runs the application in server mode
     cmds:
       - task: common:run:server

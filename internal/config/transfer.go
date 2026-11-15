@@ -151,6 +151,15 @@ func (s *Store) ReplaceProjectsWithBackup(projects []project.Project) (string, e
 	if err := pf.Validate(); err != nil {
 		return "", err
 	}
+	backup, err := s.replaceProjectsWithBackup(pf)
+	if err != nil {
+		return backup, err
+	}
+	s.notifyProjectsChanged()
+	return backup, nil
+}
+
+func (s *Store) replaceProjectsWithBackup(pf ProjectsFile) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -191,6 +200,10 @@ func (s *Store) backupProjectsUnlocked() (string, error) {
 		if err := writeBackup(file, data); err != nil {
 			_ = os.Remove(path)
 			return "", err
+		}
+		if err := syncDir(s.dir); err != nil {
+			_ = os.Remove(path)
+			return "", fmt.Errorf("projects backup: %w", err)
 		}
 		return path, nil
 	}

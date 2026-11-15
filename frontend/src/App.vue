@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { AlertTriangle, LoaderCircle } from '@lucide/vue';
-import { backend } from '@/services/backend';
+import { backend, NoticeLevel } from '@/services/backend';
 import type {
   DirectoryDraft,
   DropResult,
   ImportPreview,
+  Notice,
   Project,
   ProjectSort,
 } from '@/services/backend';
@@ -166,6 +167,23 @@ async function onDrop(result: DropResult) {
   }
 }
 
+/** Tray "Settings…": the window is already shown by Go; open Preferences unless busy. */
+function onOpenSettings() {
+  if (!anyDialogOpen.value) {
+    settingsOpen.value = true;
+  }
+}
+
+function onNotice(notice: Notice) {
+  const tone =
+    notice.level === NoticeLevel.NoticeError
+      ? 'error'
+      : notice.level === NoticeLevel.NoticeWarning
+        ? 'warning'
+        : 'success';
+  notifications.notify({ tone, title: notice.title, detail: notice.detail || undefined });
+}
+
 function onWindowFocus() {
   void git.refreshIfStale();
   if (Date.now() - tools.refreshedAt > 60_000) {
@@ -186,6 +204,9 @@ function onGlobalKeydown(event: KeyboardEvent) {
 onMounted(() => {
   unsubscribers.push(backend.onProjectsDropped((result) => void onDrop(result)));
   unsubscribers.push(backend.onWindowFocus(onWindowFocus));
+  unsubscribers.push(backend.onOpenSettings(onOpenSettings));
+  unsubscribers.push(backend.onNotice(onNotice));
+  unsubscribers.push(backend.onProjectsChanged(() => void projects.load()));
   window.addEventListener('keydown', onGlobalKeydown);
   void initialize();
 });

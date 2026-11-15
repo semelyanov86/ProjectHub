@@ -3,7 +3,7 @@ import { computed } from 'vue';
 import { Ellipsis, FolderX, GitBranch, Star, TriangleAlert } from '@lucide/vue';
 import { GitState } from '@/services/backend';
 import type { Project, ProjectInspection } from '@/services/backend';
-import { avatarHue, initials, relativeTime } from '@/lib/projects';
+import { abbreviateHome, avatarHue, initials, relativeTime } from '@/lib/projects';
 
 interface Props {
   project: Project;
@@ -25,14 +25,7 @@ const emit = defineEmits<{
   toggleFavorite: [];
 }>();
 
-const displayPath = computed(() => {
-  const home = props.homeDir.replace(/\/+$/u, '');
-  const path = props.project.path;
-  if (home && (path === home || path.startsWith(`${home}/`))) {
-    return `~${path.slice(home.length)}`;
-  }
-  return path;
-});
+const displayPath = computed(() => abbreviateHome(props.project.path, props.homeDir));
 
 const repo = computed(() => {
   const git = props.inspection?.git;

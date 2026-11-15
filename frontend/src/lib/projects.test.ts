@@ -4,6 +4,7 @@ import type { Project } from '@/services/backend';
 import { createDefaultSettings } from '@/stores/app';
 import { EDITOR_IDS } from './editors';
 import {
+  abbreviateHome,
   avatarHue,
   effectiveEditor,
   initials,
@@ -15,6 +16,7 @@ import {
 vi.mock('@/services/backend', () => ({
   ThemeMode: { ThemeSystem: 'system', ThemeDark: 'dark', ThemeLight: 'light' },
   TerminalMode: { TerminalModeGhostty: 'ghostty', TerminalModeCustom: 'custom' },
+  CloseBehavior: { CloseBehaviorTray: 'tray', CloseBehaviorQuit: 'quit' },
   FileManagerMode: { FileManagerModeAuto: 'auto', FileManagerModeCustom: 'custom' },
   ProjectSort: { ProjectSortName: 'name', ProjectSortLastOpened: 'lastOpened' },
   Target: {
@@ -68,6 +70,14 @@ function project(id: string, overrides: Partial<Project> = {}): Project {
 }
 
 describe('project helpers', () => {
+  it('abbreviates paths inside the home directory only', () => {
+    expect(abbreviateHome('/home/dev/code/app', '/home/dev')).toBe('~/code/app');
+    expect(abbreviateHome('/home/dev', '/home/dev/')).toBe('~');
+    expect(abbreviateHome('/home/developer/app', '/home/dev')).toBe('/home/developer/app');
+    expect(abbreviateHome('/srv/app', '')).toBe('/srv/app');
+    expect(abbreviateHome('/srv/app', null)).toBe('/srv/app');
+  });
+
   it.each(['alpha', ' DETAILS ', '/CODE/ALPHA', '', '   '])(
     'matches name, description, path or empty query: %s',
     (query) => {

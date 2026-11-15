@@ -2,7 +2,10 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"strings"
 
 	"github.com/semelyanov86/ProjectHub/internal/config"
 	"github.com/semelyanov86/ProjectHub/internal/editor"
@@ -82,7 +85,7 @@ func (s *Service) open(
 	defer s.endLaunch(p.ID)
 
 	if err := s.deps.Launcher.Open(ctx, target, p.Path, preferences(settings)); err != nil {
-		return OpenResult{}, fmt.Errorf("open %s: %w", p.Name, err)
+		return OpenResult{}, launchError(p, target, err)
 	}
 
 	editorID := ""
@@ -123,5 +126,72 @@ func joinWarnings(a, b string) string {
 		return a
 	default:
 		return a + " " + b
+	}
+}
+
+// LaunchError is a failed launch with a short, actionable message for the
+// notification shown to the user (whose title already names the project).
+// The launcher error stays in the chain for errors.Is and errors.As.
+type LaunchError struct {
+	Message string
+	Err     error
+}
+
+func (e *LaunchError) Error() string { return e.Message }
+
+func (e *LaunchError) Unwrap() error { return e.Err }
+
+// launchError turns a launcher failure into a LaunchError that says what went
+// wrong and what to do about it.
+func launchError(p project.Project, target launcher.Target, err error) error {
+	tool := targetName(target)
+	var message string
+	switch {
+	case errors.Is(err, launcher.ErrInvalidTargetPath) && errors.Is(err, fs.ErrNotExist):
+		message = fmt.Sprintf("The directory %s no longer exists. Edit the project to update its location, or remove it.", p.Path)
+	case errors.Is(err, launcher.ErrInvalidTargetPath) && errors.Is(err, fs.ErrPermission):
+		message = fmt.Sprintf("You do not have permission to open %s.", p.Path)
+	case errors.Is(err, launcher.ErrInvalidTargetPath):
+		message = fmt.Sprintf("%s cannot be opened: %s", p.Path, launchDetail(err, launcher.ErrInvalidTargetPath, tool))
+	case errors.Is(err, launcher.ErrToolNotFound):
+		message = fmt.Sprintf("%s was not found (%s). Install it or set its executable in Settings.",
+			tool, launchDetail(err, launcher.ErrToolNotFound, tool))
+	case errors.Is(err, launcher.ErrInvalidExecutable):
+		message = fmt.Sprintf("The %s executable configured in Settings is invalid: %s",
+			tool, launchDetail(err, launcher.ErrInvalidExecutable, tool))
+	case errors.Is(err, launcher.ErrLaunchFailed):
+		message = fmt.Sprintf("%s could not be started: %s", tool, launchDetail(err, launcher.ErrLaunchFailed, tool))
+	default:
+		message = err.Error()
+	}
+	return &LaunchError{Message: message, Err: err}
+}
+
+// launchDetail strips the sentinel text and the tool-name prefix the launcher
+// adds ("Zed: ", "File Manager: "), leaving the specific reason, for example a
+// missing path or the application's stderr output.
+func launchDetail(err, sentinel error, tool string) string {
+	detail := strings.Replace(err.Error(), sentinel.Error()+": ", "", 1)
+	if prefix := tool + ": "; len(detail) >= len(prefix) && strings.EqualFold(detail[:len(prefix)], prefix) {
+		detail = detail[len(prefix):]
+	}
+	return detail
+}
+
+func targetName(target launcher.Target) string {
+	switch target {
+	case launcher.TargetSublime, launcher.TargetZed:
+		if ed, ok := editor.FindByID(string(target)); ok {
+			return ed.Name
+		}
+		return string(target)
+	case launcher.TargetGhostty:
+		return "Ghostty"
+	case launcher.TargetTerminal:
+		return "Custom terminal"
+	case launcher.TargetFileManager:
+		return "File manager"
+	default:
+		return string(target)
 	}
 }

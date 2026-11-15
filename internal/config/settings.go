@@ -73,6 +73,19 @@ const (
 	FileManagerModeCustom FileManagerMode = "custom"
 )
 
+// CloseBehavior selects what closing the main window does.
+type CloseBehavior string
+
+// Supported close behaviors.
+const (
+	// CloseBehaviorTray hides the window and keeps ProjectHub running in the
+	// system tray. When no tray host is available the window quits instead, so
+	// the application never keeps running invisibly.
+	CloseBehaviorTray CloseBehavior = "tray"
+	// CloseBehaviorQuit quits ProjectHub when the window is closed.
+	CloseBehaviorQuit CloseBehavior = "quit"
+)
+
 // ProjectSort is the list ordering inside the All and Favorites tabs.
 type ProjectSort string
 
@@ -118,6 +131,9 @@ type Settings struct {
 	DoubleClickOpensEditor bool              `json:"doubleClickOpensEditor"`
 	ShowGitDirty           bool              `json:"showGitDirty"`
 	ProjectSort            ProjectSort       `json:"projectSort"`
+	// CloseBehavior was added in 0.1.0 without a schema change: files that do
+	// not contain it load with the default.
+	CloseBehavior CloseBehavior `json:"closeBehavior"`
 }
 
 // ProjectsFile represents the versioned project catalog stored in projects.json.
@@ -145,6 +161,7 @@ func DefaultSettings() Settings {
 		DoubleClickOpensEditor: true,
 		ShowGitDirty:           true,
 		ProjectSort:            ProjectSortName,
+		CloseBehavior:          CloseBehaviorTray,
 	}
 }
 
@@ -184,6 +201,11 @@ func (s Settings) Validate() error {
 	case ProjectSortName, ProjectSortLastOpened:
 	default:
 		return fmt.Errorf("%w: projectSort %q must be name or lastOpened", ErrInvalidConfig, s.ProjectSort)
+	}
+	switch s.CloseBehavior {
+	case CloseBehaviorTray, CloseBehaviorQuit:
+	default:
+		return fmt.Errorf("%w: closeBehavior %q must be tray or quit", ErrInvalidConfig, s.CloseBehavior)
 	}
 	switch s.Theme {
 	case ThemeSystem, ThemeLight, ThemeDark:

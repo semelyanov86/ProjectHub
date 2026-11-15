@@ -5,6 +5,7 @@ import { DOMWrapper, flushPromises, mount } from '@vue/test-utils';
 import type { VueWrapper } from '@vue/test-utils';
 import {
   backend,
+  CloseBehavior,
   FileManagerMode,
   ProjectSort,
   Target,
@@ -20,6 +21,7 @@ import SettingsDialog from './SettingsDialog.vue';
 vi.mock('@/services/backend', () => ({
   ThemeMode: { ThemeSystem: 'system', ThemeLight: 'light', ThemeDark: 'dark' },
   TerminalMode: { TerminalModeGhostty: 'ghostty', TerminalModeCustom: 'custom' },
+  CloseBehavior: { CloseBehaviorTray: 'tray', CloseBehaviorQuit: 'quit' },
   FileManagerMode: { FileManagerModeAuto: 'auto', FileManagerModeCustom: 'custom' },
   ProjectSort: { ProjectSortName: 'name', ProjectSortLastOpened: 'lastOpened' },
   Target: {
@@ -31,6 +33,7 @@ vi.mock('@/services/backend', () => ({
   },
   backend: {
     updateSettings: vi.fn(),
+    trayAvailable: vi.fn(),
     listTools: vi.fn(),
     terminalPresets: vi.fn(),
     chooseExecutable: vi.fn(),
@@ -94,6 +97,7 @@ beforeEach(() => {
   vi.mocked(backend.listTools).mockImplementation(async () => [...useToolsStore().tools]);
   vi.mocked(backend.terminalPresets).mockResolvedValue([kitty]);
   vi.mocked(backend.chooseExecutable).mockResolvedValue('');
+  vi.mocked(backend.trayAvailable).mockResolvedValue(true);
 });
 
 afterEach(() => {
@@ -116,6 +120,24 @@ describe('SettingsDialog', () => {
         theme: ThemeMode.ThemeDark,
       }),
     );
+  });
+
+  it('saves the close behaviour and explains when no tray is available', async () => {
+    vi.mocked(backend.trayAvailable).mockResolvedValue(false);
+    await openDialog();
+    expect(body().find('[data-testid="tray-unavailable"]').exists()).toBe(true);
+    await control<HTMLInputElement>('Quit ProjectHub').setValue(true);
+    expect(body().find('[data-testid="tray-unavailable"]').exists()).toBe(false);
+    await submit();
+    expect(backend.updateSettings).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ closeBehavior: CloseBehavior.CloseBehaviorQuit }),
+    );
+  });
+
+  it('shows no tray hint when a tray is available', async () => {
+    await openDialog();
+    expect(backend.trayAvailable).toHaveBeenCalledOnce();
+    expect(body().find('[data-testid="tray-unavailable"]').exists()).toBe(false);
   });
 
   it('closes unchanged preferences with a success notification without saving', async () => {

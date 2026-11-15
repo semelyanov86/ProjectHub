@@ -17,6 +17,9 @@ type Store struct {
 	mu  sync.RWMutex
 	dir string
 	now func() time.Time
+
+	hookMu           sync.Mutex
+	onProjectsChange func()
 }
 
 // DefaultDir resolves the ProjectHub configuration directory following the XDG Base Directory Specification.
@@ -44,9 +47,52 @@ func NewStore(dir string) (*Store, error) {
 	return &Store{dir: cleanDir, now: time.Now}, nil
 }
 
+// OnProjectsChanged registers fn to be called after every successful write of
+// projects.json (catalog mutations and replacement imports). fn runs after the
+// store lock is released and must not block; it replaces any earlier hook.
+func (s *Store) OnProjectsChanged(fn func()) {
+	s.hookMu.Lock()
+	defer s.hookMu.Unlock()
+	s.onProjectsChange = fn
+}
+
+func (s *Store) notifyProjectsChanged() {
+	s.hookMu.Lock()
+	fn := s.onProjectsChange
+	s.hookMu.Unlock()
+	if fn != nil {
+		fn()
+	}
+}
+
 // Dir returns the resolved configuration directory path.
 func (s *Store) Dir() string {
 	return s.dir
+}
+
+// EnsureFiles creates settings.json and projects.json with defaults when they
+// do not exist yet, so a fresh installation has its configuration on disk after
+// the first launch. Existing files, including unreadable or corrupted ones, are
+// never modified.
+func (s *Store) EnsureFiles() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := createIfMissing(s.SettingsPath(), DefaultSettings()); err != nil {
+		return err
+	}
+	return createIfMissing(s.ProjectsPath(), DefaultProjectsFile())
+}
+
+func createIfMissing(path string, payload any) error {
+	_, err := os.Lstat(path)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("check %s: %w", path, err)
+	}
+	return writeJSONAtomic(path, payload)
 }
 
 // SettingsPath returns the full path to settings.json.
@@ -88,6 +134,9 @@ func (s *Store) loadSettingsUnlocked() (Settings, error) {
 	if settings.CustomTerminal.Args == nil {
 		settings.CustomTerminal.Args = []string{}
 	}
+	if settings.CloseBehavior == "" {
+		settings.CloseBehavior = CloseBehaviorTray
+	}
 	if err := settings.Validate(); err != nil {
 		return Settings{}, fmt.Errorf("validate %s: %w", path, err)
 	}
@@ -103,6 +152,9 @@ func (s *Store) SaveSettings(settings Settings) error {
 	}
 	if settings.SchemaVersion == 0 {
 		settings.SchemaVersion = CurrentSettingsSchemaVersion
+	}
+	if settings.CloseBehavior == "" {
+		settings.CloseBehavior = CloseBehaviorTray
 	}
 	if err := settings.Validate(); err != nil {
 		return err
@@ -191,7 +243,14 @@ func (s *Store) SaveProjectsFile(pf ProjectsFile) error {
 	if err := pf.Validate(); err != nil {
 		return err
 	}
+	if err := s.saveProjectsFile(pf); err != nil {
+		return err
+	}
+	s.notifyProjectsChanged()
+	return nil
+}
 
+func (s *Store) saveProjectsFile(pf ProjectsFile) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -205,6 +264,15 @@ func (s *Store) SaveProjectsFile(pf ProjectsFile) error {
 // Mutator errors are returned unchanged, and invalid or unreadable catalogs are never overwritten.
 // The returned committed projects are a deep copy and are never nil.
 func (s *Store) UpdateProjects(mutate func([]project.Project) ([]project.Project, error)) ([]project.Project, error) {
+	committed, err := s.updateProjects(mutate)
+	if err != nil {
+		return nil, err
+	}
+	s.notifyProjectsChanged()
+	return committed, nil
+}
+
+func (s *Store) updateProjects(mutate func([]project.Project) ([]project.Project, error)) ([]project.Project, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -296,5 +364,22 @@ func writeJSONAtomic(path string, payload any) error {
 		return fmt.Errorf("replace %s: %w", path, err)
 	}
 	cleanup = false
+	return syncDir(dir)
+}
+
+// syncDir flushes a directory entry change (a rename or a newly created file)
+// to disk, so a crash right after a save cannot resurrect the old file.
+func syncDir(dir string) error {
+	d, err := os.Open(filepath.Clean(dir))
+	if err != nil {
+		return fmt.Errorf("open config directory %s: %w", dir, err)
+	}
+	if err := d.Sync(); err != nil {
+		_ = d.Close()
+		return fmt.Errorf("sync config directory %s: %w", dir, err)
+	}
+	if err := d.Close(); err != nil {
+		return fmt.Errorf("close config directory %s: %w", dir, err)
+	}
 	return nil
 }

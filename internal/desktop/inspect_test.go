@@ -73,3 +73,23 @@ func TestInspectProjectsBatchSize(t *testing.T) {
 		})
 	}
 }
+
+func TestDirectoryStatesBoundsHungChecks(t *testing.T) {
+	release := make(chan struct{})
+	defer close(release)
+	check := func(path string) DirectoryState {
+		if path == "/mnt/stale-nfs" {
+			<-release // simulates stat blocking on an unresponsive mount
+		}
+		return DirectoryPresent
+	}
+	start := time.Now()
+	got := directoryStates(t.Context(), []string{"/work/a", "/mnt/stale-nfs", "/work/b"}, 50*time.Millisecond, check)
+	want := []DirectoryState{DirectoryPresent, DirectoryInaccessible, DirectoryPresent}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("directoryStates() = %v, want %v", got, want)
+	}
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("directoryStates() took %v despite a 50ms timeout", elapsed)
+	}
+}

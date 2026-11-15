@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.semelyanov86.projecthub</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>ProjectHub</name>
+  <summary>Manage and open development projects</summary>
+  <description>
+    <p>
+      ProjectHub keeps a list of your local development projects and opens them in one
+      click: in Zed or Sublime Text, in Ghostty or another terminal, or in the file manager.
+    </p>
+    <ul>
+      <li>Favorites, recently opened projects and instant search</li>
+      <li>Read-only Git branch and uncommitted-changes indicators</li>
+      <li>Drag and drop folders, JSON import and export</li>
+      <li>System tray menu with recent projects</li>
+      <li>Local-first: plain JSON files in ~/.config/projecthub, no accounts, no telemetry</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">io.github.semelyanov86.projecthub.desktop</launchable>
+  <developer id="io.github.semelyanov86">
+    <name>Sergey Emelyanov</name>
+  </developer>
+  <url type="homepage">https://github.com/semelyanov86/ProjectHub</url>
+  <url type="bugtracker">https://github.com/semelyanov86/ProjectHub/issues</url>
+  <url type="vcs-browser">https://github.com/semelyanov86/ProjectHub</url>
+  <categories>
+    <category>Development</category>
+  </categories>
+  <keywords>
+    <keyword>projects</keyword>
+    <keyword>editor</keyword>
+    <keyword>terminal</keyword>
+    <keyword>git</keyword>
+  </keywords>
+  <provides>
+    <binary>projecthub</binary>
+  </provides>
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-11-15">
+      <description>
+        <p>First public release.</p>
+      </description>
+    </release>
+  </releases>
+</component>
